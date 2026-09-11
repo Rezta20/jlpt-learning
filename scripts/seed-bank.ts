@@ -1,0 +1,429 @@
+/**
+ * Build a practice bank without calling OpenAI.
+ * Vocab: kanji reading / orthography / context-from-example.
+ * Grammar + reading: authored originals in scripts/data/.
+ */
+import { createHash } from 'node:crypto'
+import { eq, and } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
+import * as schema from '../server/db/schema'
+import type { Explanation } from '../server/db/schema'
+import { GRAMMAR_QUESTIONS } from './data/grammar-questions'
+import { PASSAGES } from './data/passages'
+
+type Db = ReturnType<typeof import('drizzle-orm/postgres-js').drizzle<typeof schema>>
+
+export function stemHash(stem: string, options: string[]) {
+  const norm = (stem + '|' + [...options].sort().join('|')).replace(/\s+/g, '')
+  return createHash('sha1').update(norm).digest('hex')
+}
+
+function hash32(s: string) {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
+  return h >>> 0
+}
+
+function rng(seed: string) {
+  let a = hash32(seed)
+  return () => {
+    a |= 0
+    a = (a + 0x6D2B79F5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function shuffle<T>(arr: T[], rand: () => number): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[a[i], a[j]] = [a[j]!, a[i]!]
+  }
+  return a
+}
+
+function pickN(pool: string[], correct: string, n: number, rand: () => number, prefer?: (s: string) => boolean): string[] {
+  const uniq = Array.from(new Set(pool.filter(x => x && x !== correct)))
+  const preferred = prefer ? uniq.filter(prefer) : []
+  const rest = prefer ? uniq.filter(x => !prefer(x)) : uniq
+  const ordered = shuffle(preferred, rand).concat(shuffle(rest, rand))
+  return ordered.slice(0, n)
+}
+
+function place(correct: string, distractors: string[], rand: () => number): { options: string[], answerIndex: number } | null {
+  const opts = [correct, ...distractors.filter(d => d && d !== correct)]
+  if (opts.length < 4) return null
+  const options = shuffle(opts.slice(0, 4), rand)
+  return { options, answerIndex: options.indexOf(correct) }
+}
+
+function isolatedOccurrence(ja: string, term: string) {
+  const i = ja.indexOf(term)
+  if (i < 0) return false
+  const before = ja[i - 1] ?? ''
+  const after = ja[i + term.length] ?? ''
+  const kanji = /[\u4e00-\u9fff]/
+  if (kanji.test(before) && kanji.test(term[0] ?? '')) return false
+  if (kanji.test(after) && kanji.test(term[term.length - 1] ?? '')) return false
+  return true
+}
+
+function exampleWithTerm(v: VocabRow) {
+  return v.content?.examples?.find(e => isolatedOccurrence(e.ja, v.term))
+}
+
+const hasKanji = (s: string) => /[\u4e00-\u9fff]/.test(s)
+
+function explainReading(term: string, reading: string, options: string[], answerIndex: number): Explanation {
+  const whyWrong = options.map((o, i) => (i === answerIndex ? '' : `「${o}」不是「${term}」的讀音。`))
+  return {
+    whyCorrect: `【${term}】的正確讀音是「${reading}」。`,
+    whyWrong,
+    coreConcept: `${term}＝${reading}`,
+    examples: [],
+    memoryTip: '先看清長音、促音、濁音，不要只記漢字長相。'
+  }
+}
+
+function explainOrtho(term: string, reading: string, options: string[], answerIndex: number): Explanation {
+  const whyWrong = options.map((o, i) => (i === answerIndex ? '' : `「${o}」不是「${reading}」這個詞的漢字。`))
+  return {
+    whyCorrect: `讀作「${reading}」時，正確寫法是「${term}」。`,
+    whyWrong,
+    coreConcept: `${reading}＝${term}`,
+    examples: [],
+    memoryTip: '形近字先比部首，再比讀音。'
+  }
+}
+
+function explainContext(term: string, reading: string | null, meaning: string | null, options: string[], answerIndex: number): Explanation {
+  const label = reading ? `${term}（${reading}）` : term
+  const whyWrong = options.map((o, i) => (i === answerIndex ? '' : `「${o}」放進這個句子，意思或搭配不自然。`))
+  return {
+    whyCorrect: `這個空格要填「${label}」${meaning ? `，意思接近「${meaning}」` : ''}。`,
+    whyWrong,
+    coreConcept: meaning || label,
+    examples: [],
+    memoryTip: '先看空格前後的助詞和場面，再選詞。'
+  }
+}
+
+type VocabRow = {
+  id: string
+  term: string
+  reading: string | null
+  meaningZh: string | null
+  level: string
+  content: { examples?: { ja: string, zh: string }[] }
+}
+
+type QRow = {
+  level: string
+  skill: 'vocab' | 'grammar' | 'reading'
+  qtype: string
+  stem: string
+  options: string[]
+  answerIndex: number
+  explanation: Explanation
+  source: string
+  sourceRef: string
+  stemHash: string
+  kpId: string
+  passageId?: string
+}
+
+async function flushQuestions(db: Db, rows: QRow[]) {
+  let inserted = 0
+  let linked = 0
+  const chunkSize = 80
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize)
+    const values = chunk.map(r => ({
+      level: r.level,
+      skill: r.skill,
+      qtype: r.qtype,
+      stem: r.stem,
+      options: r.options,
+      answerIndex: r.answerIndex,
+      explanation: r.explanation,
+      source: r.source,
+      sourceRef: r.sourceRef,
+      stemHash: r.stemHash,
+      passageId: r.passageId ?? null
+    }))
+    const ret = await db.insert(schema.questions).values(values).onConflictDoNothing().returning({
+      id: schema.questions.id,
+      stemHash: schema.questions.stemHash
+    })
+    inserted += ret.length
+    const kpByHash = new Map(chunk.map(r => [r.stemHash, r.kpId]))
+    const links = ret.map(r => {
+      const kpId = kpByHash.get(r.stemHash)
+      return kpId ? { questionId: r.id, knowledgePointId: kpId } : null
+    }).filter(Boolean) as { questionId: string, knowledgePointId: string }[]
+    if (links.length) {
+      await db.insert(schema.questionKnowledgePoints).values(links).onConflictDoNothing()
+      linked += links.length
+    }
+  }
+  return { inserted, linked }
+}
+
+function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
+  const readings = vocabs.map(v => (v.reading || '').trim()).filter(r => r.length >= 2)
+  const kanjiTerms = vocabs.filter(v => hasKanji(v.term)).map(v => v.term)
+  const byLevel = new Map<string, string[]>()
+  for (const v of vocabs) {
+    const arr = byLevel.get(v.level) ?? []
+    arr.push(v.term)
+    byLevel.set(v.level, arr)
+  }
+  const out: QRow[] = []
+
+  for (const v of vocabs) {
+    const reading = (v.reading || '').trim()
+    const rand = rng(v.id + v.term)
+
+    if (hasKanji(v.term) && reading) {
+      const dRead = pickN(readings, reading, 3, rand, s => Math.abs(s.length - reading.length) <= 1)
+      const placedR = place(reading, dRead, rand)
+      if (placedR) {
+        const example = exampleWithTerm(v)
+        const stem = example
+          ? example.ja.replace(v.term, `【${v.term}】`)
+          : `次の文の【　　】の漢字の読み方として最もよいものを選んでください。\n【${v.term}】`
+        out.push({
+          level: v.level,
+          skill: 'vocab',
+          qtype: 'kanji_reading',
+          stem,
+          options: placedR.options,
+          answerIndex: placedR.answerIndex,
+          explanation: explainReading(v.term, reading, placedR.options, placedR.answerIndex),
+          source: 'seed',
+          sourceRef: 'bank:kanji_reading',
+          stemHash: stemHash(stem, placedR.options),
+          kpId: v.id
+        })
+      }
+
+      const dKan = pickN(kanjiTerms, v.term, 3, rand, s => Math.abs(s.length - v.term.length) <= 1)
+      const placedK = place(v.term, dKan, rand)
+      if (placedK) {
+        const example = exampleWithTerm(v)
+        const stem = example
+          ? example.ja.replace(v.term, `【${reading}】`)
+          : `次の文の【　　】のひらがなを漢字で書くとき、最もよいものを選んでください。\n【${reading}】`
+        out.push({
+          level: v.level,
+          skill: 'vocab',
+          qtype: 'orthography',
+          stem,
+          options: placedK.options,
+          answerIndex: placedK.answerIndex,
+          explanation: explainOrtho(v.term, reading, placedK.options, placedK.answerIndex),
+          source: 'seed',
+          sourceRef: 'bank:orthography',
+          stemHash: stemHash(stem, placedK.options),
+          kpId: v.id
+        })
+      }
+    }
+
+    const ex = exampleWithTerm(v)
+    if (ex && ex.ja.length >= 6) {
+      const pool = byLevel.get(v.level) ?? []
+      const dCtx = pickN(pool, v.term, 3, rand, s => Math.abs(s.length - v.term.length) <= 2 && !ex.ja.includes(s))
+      const placedC = place(v.term, dCtx, rand)
+      if (placedC) {
+        const stem = ex.ja.replace(v.term, '（　　）')
+        if (stem.includes('（　　）')) {
+          out.push({
+            level: v.level,
+            skill: 'vocab',
+            qtype: 'context',
+            stem,
+            options: placedC.options,
+            answerIndex: placedC.answerIndex,
+            explanation: explainContext(v.term, reading || null, v.meaningZh, placedC.options, placedC.answerIndex),
+            source: 'seed',
+            sourceRef: 'bank:context',
+            stemHash: stemHash(stem, placedC.options),
+            kpId: v.id
+          })
+        }
+      }
+    }
+  }
+  return out
+}
+
+async function seedVocabQuestions(db: Db) {
+  const vocabs = await db.select({
+    id: schema.knowledgePoints.id,
+    term: schema.knowledgePoints.term,
+    reading: schema.knowledgePoints.reading,
+    meaningZh: schema.knowledgePoints.meaningZh,
+    level: schema.knowledgePoints.level,
+    content: schema.knowledgePoints.content
+  }).from(schema.knowledgePoints).where(eq(schema.knowledgePoints.type, 'vocab')) as VocabRow[]
+
+  const rows = buildVocabQuestions(vocabs)
+  const { inserted } = await flushQuestions(db, rows)
+  console.log(`vocab questions prepared ${rows.length}, inserted ${inserted}`)
+}
+
+async function seedGrammarQuestions(db: Db) {
+  const kps = await db.select({
+    id: schema.knowledgePoints.id,
+    term: schema.knowledgePoints.term,
+    level: schema.knowledgePoints.level
+  }).from(schema.knowledgePoints).where(eq(schema.knowledgePoints.type, 'grammar'))
+  const byTerm = new Map(kps.map(k => [k.term, k]))
+  const missing = new Set<string>()
+  const rows: QRow[] = []
+  for (const q of GRAMMAR_QUESTIONS) {
+    const kp = byTerm.get(q.term)
+    if (!kp) {
+      missing.add(q.term)
+      continue
+    }
+    const whyWrong = q.options.map((_, i) => q.wrong[i] ?? '')
+    const explanation: Explanation = {
+      whyCorrect: q.why,
+      whyWrong,
+      coreConcept: q.core,
+      examples: q.examples ?? [],
+      memoryTip: q.tip
+    }
+    rows.push({
+      level: kp.level,
+      skill: 'grammar',
+      qtype: q.qtype,
+      stem: q.stem,
+      options: [...q.options],
+      answerIndex: q.answer,
+      explanation,
+      source: 'seed',
+      sourceRef: 'bank:grammar',
+      stemHash: stemHash(q.stem, [...q.options]),
+      kpId: kp.id
+    })
+  }
+  const { inserted } = await flushQuestions(db, rows)
+  if (missing.size) console.warn('grammar terms not in DB:', [...missing].join('、'))
+  console.log(`grammar questions prepared ${rows.length}, inserted ${inserted}`)
+}
+
+function todayTw() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+function addDays(dateStr: string, n: number) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+async function seedPassages(db: Db) {
+  const start = todayTw()
+  let insertedP = 0
+  let insertedQ = 0
+  for (const p of PASSAGES) {
+    const existing = await db.query.passages.findFirst({
+      where: and(eq(schema.passages.title, p.title), eq(schema.passages.source, 'seed'))
+    })
+    const scheduledFor = addDays(start, p.dayOffset)
+    let passageId = existing?.id
+    if (!existing) {
+      const [row] = await db.insert(schema.passages).values({
+        level: p.level,
+        title: p.title,
+        body: p.body,
+        tokens: p.tokens,
+        summaryZh: p.summaryZh,
+        targetKpIds: [],
+        scheduledFor,
+        source: 'seed'
+      }).returning({ id: schema.passages.id })
+      passageId = row!.id
+      insertedP++
+    } else if (!existing.scheduledFor) {
+      await db.update(schema.passages).set({ scheduledFor }).where(eq(schema.passages.id, existing.id))
+    }
+    if (!passageId) continue
+    const qRows: QRow[] = p.questions.map((q, i) => ({
+      level: p.level,
+      skill: 'reading' as const,
+      qtype: 'reading_short',
+      stem: q.stem,
+      options: [...q.options],
+      answerIndex: q.answer,
+      explanation: {
+        whyCorrect: q.why,
+        whyWrong: q.wrong,
+        coreConcept: q.core,
+        examples: []
+      },
+      source: 'seed',
+      sourceRef: `bank:passage:${p.title}:${i}`,
+      stemHash: stemHash(passageId + q.stem, [...q.options]),
+      kpId: '',
+      passageId
+    }))
+    // reading questions have no KP — insert without junction
+    const chunk = qRows.map(r => ({
+      level: r.level,
+      skill: r.skill,
+      qtype: r.qtype,
+      stem: r.stem,
+      options: r.options,
+      answerIndex: r.answerIndex,
+      explanation: r.explanation,
+      source: r.source,
+      sourceRef: r.sourceRef,
+      stemHash: r.stemHash,
+      passageId: r.passageId
+    }))
+    const ret = await db.insert(schema.questions).values(chunk).onConflictDoNothing().returning({ id: schema.questions.id })
+    insertedQ += ret.length
+  }
+  console.log(`passages inserted ${insertedP}, reading questions inserted ${insertedQ}`)
+}
+
+export async function seedQuestionBank(db: Db) {
+  await seedVocabQuestions(db)
+  await seedGrammarQuestions(db)
+  await seedPassages(db)
+}
+
+async function main() {
+  const { default: postgres } = await import('postgres')
+  const { drizzle } = await import('drizzle-orm/postgres-js')
+  await import('dotenv/config')
+  const url = process.env.NUXT_DATABASE_URL || process.env.DATABASE_URL
+  if (!url) {
+    console.error('NUXT_DATABASE_URL is not set')
+    process.exit(1)
+  }
+  const client = postgres(url, { prepare: false, max: 3 })
+  const db = drizzle(client, { schema })
+  await seedQuestionBank(db as Db)
+  const counts = await db.execute<{ skill: string, qtype: string, n: number }>(sql`
+    select skill, qtype, count(*)::int as n from questions group by skill, qtype order by skill, qtype
+  `)
+  console.table(counts)
+  await client.end()
+}
+
+const isMain = process.argv[1]?.includes('seed-bank')
+if (isMain) {
+  main().catch((e) => {
+    console.error(e)
+    process.exit(1)
+  })
+}

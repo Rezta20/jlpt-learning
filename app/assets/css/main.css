@@ -1,0 +1,88 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+  --font-sans: 'Noto Sans TC', 'Noto Sans JP', system-ui, -apple-system, sans-serif;
+  --font-ja: 'Noto Sans JP', 'Noto Sans TC', system-ui, sans-serif;
+}
+
+:root {
+  --ui-radius: 0.5rem;
+}
+
+html, body {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+body {
+  @apply bg-default text-default antialiased;
+}
+
+.ja {
+  font-family: var(--font-ja);
+  font-feature-settings: "palt" 0;
+  line-height: 1.75;
+}
+
+/* Question stem: large, readable Japanese */
+.ja-stem {
+  font-family: var(--font-ja);
+  font-size: 1.25rem;
+  line-height: 1.9;
+  letter-spacing: 0.01em;
+}
+
+@media (min-width: 640px) {
+  .ja-stem {
+    font-size: 1.375rem;
+  }
+}
+
+/* Blank marker inside a stem, e.g. （　　） */
+.blank {
+  @apply inline-block min-w-14 border-b-2 border-dashed border-muted text-center align-baseline;
+}
+
+/* Tappable token in reading passages */
+.tok {
+  @apply cursor-pointer rounded px-0.5 py-0.5 -my-0.5;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tok:hover {
+    @apply bg-elevated;
+  }
+}
+.tok.is-unknown {
+  @apply bg-primary/10 text-primary;
+}
+.tok.is-target {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--ui-primary);
+  text-underline-offset: 4px;
+}
+
+/* Reduce motion globally except answer feedback */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.feedback-correct {
+  animation: pop 180ms ease-out;
+}
+.feedback-wrong {
+  animation: shake 220ms ease-in-out;
+}
+@keyframes pop {
+  0% { transform: scale(0.98); }
+  60% { transform: scale(1.01); }
+  100% { transform: scale(1); }
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
