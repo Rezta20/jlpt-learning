@@ -43,7 +43,7 @@ export async function monthUsage() {
 }
 
 export async function assertBudget() {
-  const budget = Number(useRuntimeConfig().monthlyBudgetUsd || 3)
+  const budget = Number(useRuntimeConfig().monthlyBudgetUsd || 5)
   const u = await monthUsage()
   if (u.costUsd >= budget) {
     throw createError({ statusCode: 402, statusMessage: `本月 AI 預算 US$${budget} 已用完（已用 US$${u.costUsd.toFixed(2)}）。可在環境變數 NUXT_MONTHLY_BUDGET_USD 調整。` })

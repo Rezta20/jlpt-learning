@@ -23,7 +23,7 @@ export default defineNuxtConfig({
     databaseUrl: '',
     openaiApiKey: '',
     openaiModel: 'gpt-5.4-mini',
-    monthlyBudgetUsd: '3',
+    monthlyBudgetUsd: '5',
     cronSecret: '',
     public: {
       appName: 'JLPT Trainer',

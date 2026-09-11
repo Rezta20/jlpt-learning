@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
     order by flags_count desc, times_answered desc limit 50
   `)
   return {
-    budgetUsd: Number(cfg.monthlyBudgetUsd || 3),
+    budgetUsd: Number(cfg.monthlyBudgetUsd || 5),
     model: cfg.openaiModel,
     hasOpenAiKey: !!(cfg.openaiApiKey || process.env.OPENAI_API_KEY),
     usage,

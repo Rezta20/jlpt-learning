@@ -231,7 +231,7 @@ const pct = computed(() => (ov.value ? Math.min(100, Math.round(ov.value.usage.c
         <div class="font-medium">第一次使用：一鍵建立初始題庫</div>
       </template>
       <p class="text-sm text-muted">
-        題庫已用種子資料建好，平常刷題不呼叫 AI。這裡只在你想「再生成一批」或補中文解說時才用。月預算預設 US$3，到了就停。
+        題庫已用種子資料建好，平常刷題不呼叫 AI。這裡只在你想「再生成一批」或補中文解說時才用。月預算預設 US$5，到了就停。
       </p>
       <UButton
         class="mt-3"
