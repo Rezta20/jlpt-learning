@@ -7,7 +7,8 @@ import { createHash } from 'node:crypto'
 import { eq, and } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 import * as schema from '../server/db/schema'
-import type { Explanation } from '../server/db/schema'
+import type { Explanation, ExampleSentence } from '../server/db/schema'
+import { enrichExplanation } from '../shared/enrich-explanation'
 import { GRAMMAR_QUESTIONS } from './data/grammar-questions'
 import { PASSAGES } from './data/passages'
 
@@ -76,38 +77,68 @@ function exampleWithTerm(v: VocabRow) {
 
 const hasKanji = (s: string) => /[\u4e00-\u9fff]/.test(s)
 
-function explainReading(term: string, reading: string, options: string[], answerIndex: number): Explanation {
-  const whyWrong = options.map((o, i) => (i === answerIndex ? '' : `「${o}」不是「${term}」的讀音。`))
-  return {
-    whyCorrect: `【${term}】的正確讀音是「${reading}」。`,
-    whyWrong,
-    coreConcept: `${term}＝${reading}`,
+function explainReading(v: VocabRow, options: string[], answerIndex: number, vocabs: VocabRow[], stem?: string, stemMeaning?: ExampleSentence): Explanation {
+  const reading = (v.reading || '').trim()
+  const base: Explanation = {
+    whyCorrect: `【${v.term}】的正確讀音是「${reading}」。`,
+    whyWrong: options.map((o, i) => (i === answerIndex ? '' : `「${o}」不是「${v.term}」的讀音。`)),
+    coreConcept: `${v.term}＝${reading}`,
     examples: [],
     memoryTip: '先看清長音、促音、濁音，不要只記漢字長相。'
   }
+  return enrichExplanation({
+    explanation: base,
+    options,
+    answerIndex,
+    qtype: 'kanji_reading',
+    stem,
+    vocabs,
+    target: v,
+    stemMeaning
+  })
 }
 
-function explainOrtho(term: string, reading: string, options: string[], answerIndex: number): Explanation {
-  const whyWrong = options.map((o, i) => (i === answerIndex ? '' : `「${o}」不是「${reading}」這個詞的漢字。`))
-  return {
-    whyCorrect: `讀作「${reading}」時，正確寫法是「${term}」。`,
-    whyWrong,
-    coreConcept: `${reading}＝${term}`,
+function explainOrtho(v: VocabRow, options: string[], answerIndex: number, vocabs: VocabRow[], stem?: string, stemMeaning?: ExampleSentence): Explanation {
+  const reading = (v.reading || '').trim()
+  const base: Explanation = {
+    whyCorrect: `讀作「${reading}」時，正確寫法是「${v.term}」。`,
+    whyWrong: options.map((o, i) => (i === answerIndex ? '' : `「${o}」不是「${reading}」這個詞的漢字。`)),
+    coreConcept: `${reading}＝${v.term}`,
     examples: [],
     memoryTip: '形近字先比部首，再比讀音。'
   }
+  return enrichExplanation({
+    explanation: base,
+    options,
+    answerIndex,
+    qtype: 'orthography',
+    stem,
+    vocabs,
+    target: v,
+    stemMeaning
+  })
 }
 
-function explainContext(term: string, reading: string | null, meaning: string | null, options: string[], answerIndex: number): Explanation {
-  const label = reading ? `${term}（${reading}）` : term
-  const whyWrong = options.map((o, i) => (i === answerIndex ? '' : `「${o}」放進這個句子，意思或搭配不自然。`))
-  return {
-    whyCorrect: `這個空格要填「${label}」${meaning ? `，意思接近「${meaning}」` : ''}。`,
-    whyWrong,
-    coreConcept: meaning || label,
+function explainContext(v: VocabRow, options: string[], answerIndex: number, vocabs: VocabRow[], stem?: string, stemMeaning?: ExampleSentence): Explanation {
+  const reading = (v.reading || '').trim()
+  const label = reading ? `${v.term}（${reading}）` : v.term
+  const base: Explanation = {
+    whyCorrect: `這個空格要填「${label}」${v.meaningZh ? `，意思接近「${v.meaningZh}」` : ''}。`,
+    whyWrong: options.map((o, i) => (i === answerIndex ? '' : `「${o}」放進這個句子，意思或搭配不自然。`)),
+    coreConcept: v.meaningZh || label,
     examples: [],
     memoryTip: '先看空格前後的助詞和場面，再選詞。'
   }
+  return enrichExplanation({
+    explanation: base,
+    options,
+    answerIndex,
+    qtype: 'context',
+    stem,
+    vocabs,
+    target: v,
+    stemMeaning
+  })
 }
 
 type VocabRow = {
@@ -115,8 +146,9 @@ type VocabRow = {
   term: string
   reading: string | null
   meaningZh: string | null
+  pos: string | null
   level: string
-  content: { examples?: { ja: string, zh: string }[] }
+  content: { examples?: { ja: string, zh: string }[], coreMeaning?: string, usageScene?: string, memo?: string }
 }
 
 type QRow = {
@@ -153,7 +185,11 @@ async function flushQuestions(db: Db, rows: QRow[]) {
       stemHash: r.stemHash,
       passageId: r.passageId ?? null
     }))
-    const ret = await db.insert(schema.questions).values(values).onConflictDoNothing().returning({
+    const ret = await db.insert(schema.questions).values(values).onConflictDoUpdate({
+      target: schema.questions.stemHash,
+      set: { explanation: sql`excluded.explanation` },
+      setWhere: sql`${schema.questions.source} = 'seed'`
+    }).returning({
       id: schema.questions.id,
       stemHash: schema.questions.stemHash
     })
@@ -201,7 +237,7 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
           stem,
           options: placedR.options,
           answerIndex: placedR.answerIndex,
-          explanation: explainReading(v.term, reading, placedR.options, placedR.answerIndex),
+          explanation: explainReading(v, placedR.options, placedR.answerIndex, vocabs, stem, example ? { ja: example.ja, zh: example.zh } : undefined),
           source: 'seed',
           sourceRef: 'bank:kanji_reading',
           stemHash: stemHash(stem, placedR.options),
@@ -223,7 +259,7 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
           stem,
           options: placedK.options,
           answerIndex: placedK.answerIndex,
-          explanation: explainOrtho(v.term, reading, placedK.options, placedK.answerIndex),
+          explanation: explainOrtho(v, placedK.options, placedK.answerIndex, vocabs, stem, example ? { ja: example.ja, zh: example.zh } : undefined),
           source: 'seed',
           sourceRef: 'bank:orthography',
           stemHash: stemHash(stem, placedK.options),
@@ -247,7 +283,7 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
             stem,
             options: placedC.options,
             answerIndex: placedC.answerIndex,
-            explanation: explainContext(v.term, reading || null, v.meaningZh, placedC.options, placedC.answerIndex),
+            explanation: explainContext(v, placedC.options, placedC.answerIndex, vocabs, stem, { ja: ex.ja, zh: ex.zh }),
             source: 'seed',
             sourceRef: 'bank:context',
             stemHash: stemHash(stem, placedC.options),
@@ -266,6 +302,7 @@ async function seedVocabQuestions(db: Db) {
     term: schema.knowledgePoints.term,
     reading: schema.knowledgePoints.reading,
     meaningZh: schema.knowledgePoints.meaningZh,
+    pos: schema.knowledgePoints.pos,
     level: schema.knowledgePoints.level,
     content: schema.knowledgePoints.content
   }).from(schema.knowledgePoints).where(eq(schema.knowledgePoints.type, 'vocab')) as VocabRow[]

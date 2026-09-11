@@ -82,6 +82,13 @@ export interface BookRef {
   page?: string
   note?: string
 }
+export interface OptionNote {
+  reading?: string
+  meaningZh?: string
+  pos?: string
+  usage?: string
+  example?: ExampleSentence
+}
 export interface Explanation {
   whyCorrect: string
   whyWrong: string[]
@@ -89,6 +96,8 @@ export interface Explanation {
   examples: ExampleSentence[]
   confusables?: Confusable[]
   memoryTip?: string
+  optionNotes?: OptionNote[]
+  stemMeaning?: ExampleSentence
 }
 export interface PassageToken {
   s: string

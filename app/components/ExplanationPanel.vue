@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Explanation } from '~~/shared/types'
+import type { Explanation, OptionNote } from '~~/shared/types'
 
 const props = defineProps<{
   explanation: Explanation
@@ -16,6 +16,19 @@ const toastError = useToastError()
 const asking = ref(false)
 const localExtra = ref<Explanation[]>([...(props.extra ?? [])])
 watch(() => props.extra, v => { localExtra.value = [...(v ?? [])] })
+
+function noteAt(i: number): OptionNote | undefined {
+  return props.explanation.optionNotes?.[i]
+}
+
+function noteHasContent(n: OptionNote | undefined) {
+  return Boolean(n?.reading || n?.meaningZh || n?.pos || n?.usage || n?.example)
+}
+
+const showWrong = computed(() =>
+  props.explanation.whyWrong?.some(Boolean)
+  || props.explanation.optionNotes?.some((n, i) => i !== props.answerIndex && noteHasContent(n))
+)
 
 async function explainAgain() {
   asking.value = true
@@ -42,6 +55,13 @@ async function flag() {
 
 <template>
   <div class="space-y-4 text-[15px] leading-relaxed">
+    <!-- stem meaning -->
+    <section v-if="explanation.stemMeaning?.ja && explanation.stemMeaning?.zh">
+      <div class="mb-1 text-xs font-medium uppercase tracking-wide text-muted">這句話的意思</div>
+      <div class="ja">{{ explanation.stemMeaning.ja }}</div>
+      <div class="text-sm text-muted">{{ explanation.stemMeaning.zh }}</div>
+    </section>
+
     <!-- why correct -->
     <section>
       <div class="mb-1 text-xs font-medium uppercase tracking-wide text-muted">為什麼選 {{ letters[answerIndex] }}</div>
@@ -49,19 +69,55 @@ async function flag() {
     </section>
 
     <!-- why wrong -->
-    <section v-if="explanation.whyWrong?.some(Boolean)">
+    <section v-if="showWrong">
       <div class="mb-1 text-xs font-medium uppercase tracking-wide text-muted">其他選項哪裡錯</div>
-      <ul class="space-y-1.5">
+      <ul class="space-y-3">
         <li
-          v-for="(w, i) in explanation.whyWrong"
+          v-for="(_, i) in options"
           :key="i"
-          v-show="i !== answerIndex && w"
-          class="flex gap-2"
-          :class="i === chosenIndex ? 'text-error' : ''"
+          v-show="i !== answerIndex && (Boolean(explanation.whyWrong?.[i]) || noteHasContent(noteAt(i)))"
         >
-          <span class="ja shrink-0 font-medium">{{ letters[i] }}. {{ options[i] }}</span>
-          <span class="text-muted">—</span>
-          <span>{{ w }}</span>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span
+              class="ja font-medium"
+              :class="i === chosenIndex ? 'text-error' : ''"
+            >{{ letters[i] }}. {{ options[i] }}</span>
+            <span
+              v-if="noteAt(i)?.reading"
+              class="ja text-sm text-muted"
+            >（{{ noteAt(i)?.reading }}）</span>
+          </div>
+          <p v-if="noteAt(i)?.meaningZh">{{ noteAt(i)?.meaningZh }}</p>
+          <p
+            v-if="noteAt(i)?.pos"
+            class="text-sm text-muted"
+          >
+            {{ noteAt(i)?.pos }}
+          </p>
+          <p
+            v-if="noteAt(i)?.usage && noteAt(i)?.usage !== noteAt(i)?.pos"
+            class="text-sm text-muted"
+          >
+            {{ noteAt(i)?.usage }}
+          </p>
+          <div
+            v-if="noteAt(i)?.example"
+            class="mt-0.5 text-sm"
+          >
+            <div class="ja">{{ noteAt(i)?.example?.ja }}</div>
+            <div
+              v-if="noteAt(i)?.example?.zh"
+              class="text-muted"
+            >
+              {{ noteAt(i)?.example?.zh }}
+            </div>
+          </div>
+          <p
+            v-if="explanation.whyWrong?.[i]"
+            class="mt-0.5 text-sm text-muted"
+          >
+            {{ explanation.whyWrong[i] }}
+          </p>
         </li>
       </ul>
     </section>

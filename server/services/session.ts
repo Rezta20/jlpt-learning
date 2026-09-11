@@ -1,10 +1,11 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { useDb, schema } from '../db'
-import type { QuestionDto, SessionDto, AnswerResult, SessionMode, Level, Skill, QType } from '../../shared/types'
+import type { QuestionDto, SessionDto, AnswerResult, SessionMode, Level, Skill, QType, Explanation } from '../../shared/types'
 import { pickQuestions, type Picked, type Bucket } from './mixer'
 import { applyAnswerToKnowledge } from './srs'
 import { addXp, xpForAnswer } from './gamification'
 import { XP_RULES } from '../../shared/plan'
+import { enrichExplanation, shouldEnrichQtype, type VocabBrief } from '../../shared/enrich-explanation'
 
 export interface CreateSessionInput {
   userId: string
@@ -127,6 +128,40 @@ export async function loadSession(userId: string, sessionId: string): Promise<Se
   }
 }
 
+async function enrichedExplanation(
+  q: { explanation: Explanation, options: string[], answerIndex: number, qtype: string, stem: string },
+  linked: VocabBrief[]
+): Promise<Explanation> {
+  if (!shouldEnrichQtype(q.qtype)) return q.explanation
+  const db = useDb()
+  const keys = [...new Set(q.options.filter(Boolean))]
+  let optionVocabs: VocabBrief[] = []
+  if (keys.length) {
+    optionVocabs = await db.select({
+      term: schema.knowledgePoints.term,
+      reading: schema.knowledgePoints.reading,
+      meaningZh: schema.knowledgePoints.meaningZh,
+      pos: schema.knowledgePoints.pos,
+      content: schema.knowledgePoints.content
+    }).from(schema.knowledgePoints).where(and(
+      eq(schema.knowledgePoints.type, 'vocab'),
+      or(
+        inArray(schema.knowledgePoints.term, keys),
+        inArray(schema.knowledgePoints.reading, keys)
+      )
+    ))
+  }
+  return enrichExplanation({
+    explanation: q.explanation,
+    options: q.options,
+    answerIndex: q.answerIndex,
+    qtype: q.qtype,
+    stem: q.stem,
+    vocabs: [...optionVocabs, ...linked],
+    target: linked[0] ?? null
+  })
+}
+
 export async function answerQuestion(userId: string, sessionId: string, questionId: string, chosenIndex: number, responseMs: number): Promise<AnswerResult> {
   const db = useDb()
   const s = await db.query.sessions.findFirst({ where: and(eq(schema.sessions.id, sessionId), eq(schema.sessions.userId, userId)) })
@@ -138,10 +173,23 @@ export async function answerQuestion(userId: string, sessionId: string, question
   const existing = await db.query.answers.findFirst({ where: and(eq(schema.answers.sessionId, sessionId), eq(schema.answers.questionId, questionId)) })
   const isCorrect = chosenIndex === q.answerIndex
   const extra = await db.query.explanations.findMany({ where: eq(schema.explanations.questionId, questionId) })
-  const kpRows = await db.select({ id: schema.knowledgePoints.id, term: schema.knowledgePoints.term, type: schema.knowledgePoints.type, level: schema.knowledgePoints.level })
+  const kpRows = await db.select({
+    id: schema.knowledgePoints.id,
+    term: schema.knowledgePoints.term,
+    type: schema.knowledgePoints.type,
+    level: schema.knowledgePoints.level,
+    reading: schema.knowledgePoints.reading,
+    meaningZh: schema.knowledgePoints.meaningZh,
+    pos: schema.knowledgePoints.pos,
+    content: schema.knowledgePoints.content
+  })
     .from(schema.questionKnowledgePoints)
     .innerJoin(schema.knowledgePoints, eq(schema.knowledgePoints.id, schema.questionKnowledgePoints.knowledgePointId))
     .where(eq(schema.questionKnowledgePoints.questionId, questionId))
+  const linkedVocabs: VocabBrief[] = kpRows
+    .filter(k => k.type === 'vocab')
+    .map(k => ({ term: k.term, reading: k.reading, meaningZh: k.meaningZh, pos: k.pos, content: k.content }))
+  const explanation = await enrichedExplanation(q, linkedVocabs)
 
   if (existing) {
     // Idempotent: return stored result without re-scoring
@@ -151,7 +199,7 @@ export async function answerQuestion(userId: string, sessionId: string, question
     return {
       isCorrect: existing.isCorrect,
       answerIndex: q.answerIndex,
-      explanation: q.explanation,
+      explanation,
       extraExplanations: extra.map(e => e.content),
       xpGained: 0,
       knowledgePoints: kpRows.map(k => ({ ...k, level: k.level as Level, mastery: states.find(s => s.knowledgePointId === k.id)?.mastery ?? 0 }))
@@ -208,7 +256,7 @@ export async function answerQuestion(userId: string, sessionId: string, question
   return {
     isCorrect,
     answerIndex: q.answerIndex,
-    explanation: q.explanation,
+    explanation,
     extraExplanations: extra.map(e => e.content),
     xpGained: xp,
     knowledgePoints: kpRows.map(k => ({ ...k, level: k.level as Level, mastery: states.find(s => s.knowledgePointId === k.id)?.mastery ?? 0 }))
