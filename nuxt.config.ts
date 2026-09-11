@@ -33,6 +33,11 @@ export default defineNuxtConfig({
 
   nitro: {
     preset: 'vercel',
+    vercel: {
+      config: {
+        regions: ['syd1']
+      }
+    },
     experimental: {
       tasks: false
     }

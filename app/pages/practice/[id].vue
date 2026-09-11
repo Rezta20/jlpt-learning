@@ -65,32 +65,36 @@ const timeLabel = computed(() => {
 // ---- passage grouping: reuse same passage for consecutive questions
 const prevPassageId = computed(() => (index.value > 0 ? questions.value[index.value - 1]?.passage?.id : null))
 const isNewPassage = computed(() => !!current.value?.passage && current.value.passage.id !== prevPassageId.value)
+const pendingChoice = ref<number | null>(null)
 watch(index, () => {
   shownAt.value = Date.now()
   result.value = null
+  pendingChoice.value = null
   if (isNewPassage.value) showPassage.value = true
 })
-
-// ---- answer
-const chosen = computed(() => (current.value ? answered[current.value.id]?.chosenIndex ?? null : null))
+const chosen = computed(() => {
+  if (pendingChoice.value != null) return pendingChoice.value
+  return current.value ? answered[current.value.id]?.chosenIndex ?? null : null
+})
 const isMock = computed(() => session.value?.mode === 'mock' || session.value?.mode === 'baseline')
 
 async function choose(i: number) {
-  if (!current.value || submitting.value || chosen.value != null) return
+  const q = current.value
+  if (!q || submitting.value || chosen.value != null) return
   submitting.value = true
+  pendingChoice.value = i
   try {
     const res = await $fetch<AnswerResult>(`/api/sessions/${id}/answers`, {
       method: 'POST',
-      body: { questionId: current.value.id, chosenIndex: i, responseMs: Date.now() - shownAt.value }
+      body: { questionId: q.id, chosenIndex: i, responseMs: Date.now() - shownAt.value }
     })
-    answered[current.value.id] = { chosenIndex: i, isCorrect: res.isCorrect }
-    result.value = res
+    answered[q.id] = { chosenIndex: i, isCorrect: res.isCorrect }
     sessionXp.value += res.xpGained
-    if (isMock.value) {
-      // in exam modes, move on without feedback
-      setTimeout(next, 150)
-    }
+    if (current.value?.id !== q.id) return
+    result.value = res
+    if (isMock.value) setTimeout(next, 150)
   } catch (e) {
+    if (current.value?.id === q.id) pendingChoice.value = null
     toastError(e)
   } finally {
     submitting.value = false
@@ -383,7 +387,8 @@ void copyToast
             chosen != null && result && i === result.answerIndex ? 'border-success bg-success/10 feedback-correct' : '',
             chosen != null && result && i === chosen && i !== result.answerIndex ? 'border-error bg-error/10 feedback-wrong' : '',
             chosen != null && result && i !== chosen && i !== result.answerIndex ? 'border-default opacity-50' : '',
-            chosen != null && !result ? 'border-default' : ''
+            chosen != null && !result && i === chosen ? 'border-primary bg-primary/10' : '',
+            chosen != null && !result && i !== chosen ? 'border-default opacity-50' : ''
           ]"
           :disabled="chosen != null || submitting"
           @click="choose(i)"
@@ -391,7 +396,12 @@ void copyToast
           <span class="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded border border-default text-xs font-medium text-muted">{{ letters[i] }}</span>
           <span class="flex-1">{{ opt }}</span>
           <UIcon
-            v-if="chosen != null && result && i === result.answerIndex"
+            v-if="submitting && !result && i === chosen"
+            name="i-lucide-loader-circle"
+            class="mt-1 size-5 shrink-0 animate-spin text-primary"
+          />
+          <UIcon
+            v-else-if="chosen != null && result && i === result.answerIndex"
             name="i-lucide-check"
             class="mt-1 size-5 text-success"
           />

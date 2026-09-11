@@ -51,8 +51,10 @@ async function addWord(t: PassageToken) {
 }
 
 const shownAt = ref(Date.now())
+const pending = reactive<Record<string, number>>({})
 async function choose(qid: string, i: number) {
-  if (answered[qid] || !props.passage.sessionId) return
+  if (answered[qid] || pending[qid] != null || !props.passage.sessionId) return
+  pending[qid] = i
   try {
     const res = await $fetch<AnswerResult>(`/api/sessions/${props.passage.sessionId}/answers`, {
       method: 'POST',
@@ -63,6 +65,8 @@ async function choose(qid: string, i: number) {
     shownAt.value = Date.now()
   } catch (e) {
     toastError(e)
+  } finally {
+    delete pending[qid]
   }
 }
 
@@ -143,17 +147,24 @@ async function finish() {
             type="button"
             class="ja flex min-h-12 w-full items-start gap-3 rounded-lg border px-3 py-3 text-left touch-manipulation"
             :class="[
-              !answered[q.id] ? 'border-default [@media(hover:hover)]:hover:border-primary/60 [@media(hover:hover)]:hover:bg-elevated/50' : 'cursor-default',
+              !answered[q.id] && pending[q.id] == null ? 'border-default [@media(hover:hover)]:hover:border-primary/60 [@media(hover:hover)]:hover:bg-elevated/50' : 'cursor-default',
               answered[q.id] && results[q.id] && i === results[q.id]!.answerIndex ? 'border-success bg-success/10' : '',
               answered[q.id] && i === answered[q.id]!.chosenIndex && results[q.id] && i !== results[q.id]!.answerIndex ? 'border-error bg-error/10' : '',
               answered[q.id] && !results[q.id] && i === answered[q.id]!.chosenIndex ? (answered[q.id]!.isCorrect ? 'border-success bg-success/10' : 'border-error bg-error/10') : '',
+              pending[q.id] != null && i === pending[q.id] ? 'border-primary bg-primary/10' : '',
+              pending[q.id] != null && i !== pending[q.id] ? 'opacity-50' : '',
               answered[q.id] && results[q.id] && i !== answered[q.id]!.chosenIndex && i !== results[q.id]!.answerIndex ? 'opacity-50' : ''
             ]"
-            :disabled="!!answered[q.id]"
+            :disabled="!!answered[q.id] || pending[q.id] != null"
             @click="choose(q.id, i)"
           >
             <span class="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded border border-default text-xs text-muted">{{ letters[i] }}</span>
-            <span>{{ opt }}</span>
+            <span class="flex-1">{{ opt }}</span>
+            <UIcon
+              v-if="pending[q.id] != null && i === pending[q.id]"
+              name="i-lucide-loader-circle"
+              class="mt-0.5 size-4 shrink-0 animate-spin text-primary"
+            />
           </button>
         </div>
         <div

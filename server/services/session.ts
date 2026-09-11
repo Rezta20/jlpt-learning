@@ -167,42 +167,50 @@ export async function answerQuestion(userId: string, sessionId: string, question
   const s = await db.query.sessions.findFirst({ where: and(eq(schema.sessions.id, sessionId), eq(schema.sessions.userId, userId)) })
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Session not found' })
   if (!s.questionIds.includes(questionId)) throw createError({ statusCode: 400, statusMessage: 'Question not in session' })
-  const q = await db.query.questions.findFirst({ where: eq(schema.questions.id, questionId) })
+
+  const [q, existing, extra, kpRows] = await Promise.all([
+    db.query.questions.findFirst({ where: eq(schema.questions.id, questionId) }),
+    db.query.answers.findFirst({ where: and(eq(schema.answers.sessionId, sessionId), eq(schema.answers.questionId, questionId)) }),
+    db.query.explanations.findMany({ where: eq(schema.explanations.questionId, questionId) }),
+    db.select({
+      id: schema.knowledgePoints.id,
+      term: schema.knowledgePoints.term,
+      type: schema.knowledgePoints.type,
+      level: schema.knowledgePoints.level,
+      reading: schema.knowledgePoints.reading,
+      meaningZh: schema.knowledgePoints.meaningZh,
+      pos: schema.knowledgePoints.pos,
+      content: schema.knowledgePoints.content
+    })
+      .from(schema.questionKnowledgePoints)
+      .innerJoin(schema.knowledgePoints, eq(schema.knowledgePoints.id, schema.questionKnowledgePoints.knowledgePointId))
+      .where(eq(schema.questionKnowledgePoints.questionId, questionId))
+  ])
   if (!q) throw createError({ statusCode: 404, statusMessage: 'Question not found' })
 
-  const existing = await db.query.answers.findFirst({ where: and(eq(schema.answers.sessionId, sessionId), eq(schema.answers.questionId, questionId)) })
   const isCorrect = chosenIndex === q.answerIndex
-  const extra = await db.query.explanations.findMany({ where: eq(schema.explanations.questionId, questionId) })
-  const kpRows = await db.select({
-    id: schema.knowledgePoints.id,
-    term: schema.knowledgePoints.term,
-    type: schema.knowledgePoints.type,
-    level: schema.knowledgePoints.level,
-    reading: schema.knowledgePoints.reading,
-    meaningZh: schema.knowledgePoints.meaningZh,
-    pos: schema.knowledgePoints.pos,
-    content: schema.knowledgePoints.content
-  })
-    .from(schema.questionKnowledgePoints)
-    .innerJoin(schema.knowledgePoints, eq(schema.knowledgePoints.id, schema.questionKnowledgePoints.knowledgePointId))
-    .where(eq(schema.questionKnowledgePoints.questionId, questionId))
   const linkedVocabs: VocabBrief[] = kpRows
     .filter(k => k.type === 'vocab')
     .map(k => ({ term: k.term, reading: k.reading, meaningZh: k.meaningZh, pos: k.pos, content: k.content }))
-  const explanation = await enrichedExplanation(q, linkedVocabs)
+  const explanationP = enrichedExplanation(q, linkedVocabs)
+  const kpIds = kpRows.map(k => k.id)
 
   if (existing) {
-    // Idempotent: return stored result without re-scoring
-    const states = await db.query.userKnowledgeState.findMany({
-      where: and(eq(schema.userKnowledgeState.userId, userId), inArray(schema.userKnowledgeState.knowledgePointId, kpRows.map(k => k.id).concat(['00000000-0000-0000-0000-000000000000'])))
-    })
+    const [states, explanation] = await Promise.all([
+      kpIds.length
+        ? db.query.userKnowledgeState.findMany({
+            where: and(eq(schema.userKnowledgeState.userId, userId), inArray(schema.userKnowledgeState.knowledgePointId, kpIds))
+          })
+        : Promise.resolve([]),
+      explanationP
+    ])
     return {
       isCorrect: existing.isCorrect,
       answerIndex: q.answerIndex,
       explanation,
       extraExplanations: extra.map(e => e.content),
       xpGained: 0,
-      knowledgePoints: kpRows.map(k => ({ ...k, level: k.level as Level, mastery: states.find(s => s.knowledgePointId === k.id)?.mastery ?? 0 }))
+      knowledgePoints: kpRows.map(k => ({ ...k, level: k.level as Level, mastery: states.find(st => st.knowledgePointId === k.id)?.mastery ?? 0 }))
     }
   }
 
@@ -210,48 +218,44 @@ export async function answerQuestion(userId: string, sessionId: string, question
   const clampedMs = Math.max(0, Math.min(responseMs, 10 * 60_000))
   await db.insert(schema.answers).values({ userId, sessionId, questionId, chosenIndex, isCorrect, responseMs: clampedMs })
 
-  // Question aggregate stats
-  await db.update(schema.questions).set({
-    timesAnswered: sql`${schema.questions.timesAnswered} + 1`,
-    timesCorrect: sql`${schema.questions.timesCorrect} + ${isCorrect ? 1 : 0}`
-  }).where(eq(schema.questions.id, questionId))
-
-  // User × Question state
-  const retryDue = isCorrect ? null : new Date(now.getTime() + 20 * 3600_000) // re-ask within ~1 day
-  await db.insert(schema.userQuestionState).values({
-    userId,
-    questionId,
-    seen: 1,
-    correct: isCorrect ? 1 : 0,
-    lastSeenAt: now,
-    lastWrongAt: isCorrect ? null : now,
-    wrongStreak: isCorrect ? 0 : 1,
-    retryDue
-  }).onConflictDoUpdate({
-    target: [schema.userQuestionState.userId, schema.userQuestionState.questionId],
-    set: {
-      seen: sql`${schema.userQuestionState.seen} + 1`,
-      correct: sql`${schema.userQuestionState.correct} + ${isCorrect ? 1 : 0}`,
-      lastSeenAt: now,
-      lastWrongAt: isCorrect ? sql`${schema.userQuestionState.lastWrongAt}` : now,
-      wrongStreak: isCorrect ? 0 : sql`${schema.userQuestionState.wrongStreak} + 1`,
-      retryDue
-    }
-  })
-
-  // FSRS on knowledge points
-  const states = await applyAnswerToKnowledge(userId, kpRows.map(k => k.id), isCorrect, clampedMs, q.qtype)
-
-  // Session counters
-  await db.update(schema.sessions).set({
-    answered: sql`${schema.sessions.answered} + 1`,
-    correct: sql`${schema.sessions.correct} + ${isCorrect ? 1 : 0}`,
-    durationMs: sql`${schema.sessions.durationMs} + ${clampedMs}`
-  }).where(eq(schema.sessions.id, sessionId))
-
+  const retryDue = isCorrect ? null : new Date(now.getTime() + 20 * 3600_000)
   const bucket = ((s.config as Record<string, unknown>).buckets as Record<string, string> | undefined)?.[questionId]
   const xp = xpForAnswer(isCorrect, bucket)
-  await addXp(userId, xp, { answered: 1, correct: isCorrect ? 1 : 0 })
+
+  const [states, explanation] = await Promise.all([
+    applyAnswerToKnowledge(userId, kpIds, isCorrect, clampedMs, q.qtype),
+    explanationP,
+    db.update(schema.questions).set({
+      timesAnswered: sql`${schema.questions.timesAnswered} + 1`,
+      timesCorrect: sql`${schema.questions.timesCorrect} + ${isCorrect ? 1 : 0}`
+    }).where(eq(schema.questions.id, questionId)),
+    db.insert(schema.userQuestionState).values({
+      userId,
+      questionId,
+      seen: 1,
+      correct: isCorrect ? 1 : 0,
+      lastSeenAt: now,
+      lastWrongAt: isCorrect ? null : now,
+      wrongStreak: isCorrect ? 0 : 1,
+      retryDue
+    }).onConflictDoUpdate({
+      target: [schema.userQuestionState.userId, schema.userQuestionState.questionId],
+      set: {
+        seen: sql`${schema.userQuestionState.seen} + 1`,
+        correct: sql`${schema.userQuestionState.correct} + ${isCorrect ? 1 : 0}`,
+        lastSeenAt: now,
+        lastWrongAt: isCorrect ? sql`${schema.userQuestionState.lastWrongAt}` : now,
+        wrongStreak: isCorrect ? 0 : sql`${schema.userQuestionState.wrongStreak} + 1`,
+        retryDue
+      }
+    }),
+    db.update(schema.sessions).set({
+      answered: sql`${schema.sessions.answered} + 1`,
+      correct: sql`${schema.sessions.correct} + ${isCorrect ? 1 : 0}`,
+      durationMs: sql`${schema.sessions.durationMs} + ${clampedMs}`
+    }).where(eq(schema.sessions.id, sessionId)),
+    addXp(userId, xp, { answered: 1, correct: isCorrect ? 1 : 0 })
+  ])
 
   return {
     isCorrect,
@@ -259,7 +263,7 @@ export async function answerQuestion(userId: string, sessionId: string, question
     explanation,
     extraExplanations: extra.map(e => e.content),
     xpGained: xp,
-    knowledgePoints: kpRows.map(k => ({ ...k, level: k.level as Level, mastery: states.find(s => s.knowledgePointId === k.id)?.mastery ?? 0 }))
+    knowledgePoints: kpRows.map(k => ({ ...k, level: k.level as Level, mastery: states.find(st => st.knowledgePointId === k.id)?.mastery ?? 0 }))
   }
 }
 

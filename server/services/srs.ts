@@ -115,8 +115,8 @@ export async function applyAnswerToKnowledge(userId: string, kpIds: string[], is
   const db = useDb()
   const grade = gradeFor(isCorrect, responseMs, qtype)
   const now = new Date()
-  const out: UksRow[] = []
-  for (const kpId of kpIds) {
+  const unique = [...new Set(kpIds)]
+  const updated = await Promise.all(unique.map(async (kpId) => {
     const row = await ensureKnowledgeState(userId, kpId)
     const card = rowToCard(row)
     // If the card is not due yet and answer is correct, we still record but only
@@ -134,7 +134,7 @@ export async function applyAnswerToKnowledge(userId: string, kpIds: string[], is
       next = scheduler.next(card, now, grade).card
     }
     const mastery = computeMastery({ stability: next.stability, attempts, correct, reps: next.reps, state: next.state })
-    const [updated] = await db.update(schema.userKnowledgeState).set({
+    const [saved] = await db.update(schema.userKnowledgeState).set({
       due: next.due,
       stability: next.stability,
       difficulty: next.difficulty,
@@ -151,9 +151,9 @@ export async function applyAnswerToKnowledge(userId: string, kpIds: string[], is
       lastSeenAt: now,
       learnedAt: row.learnedAt ?? now
     }).where(and(eq(schema.userKnowledgeState.userId, userId), eq(schema.userKnowledgeState.knowledgePointId, kpId))).returning()
-    if (updated) out.push(updated)
-  }
-  return out
+    return saved
+  }))
+  return updated.filter((row): row is UksRow => !!row)
 }
 
 /** Count due knowledge points by type. */
