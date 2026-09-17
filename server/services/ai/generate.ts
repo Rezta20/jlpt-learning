@@ -29,7 +29,7 @@ const questionSchema = z.object({
 })
 const questionsOut = z.object({ questions: z.array(questionSchema) })
 
-export type KpBrief = { id: string, term: string, reading: string | null, meaningZh: string | null, type: 'vocab' | 'grammar', level: string, content?: Record<string, unknown> }
+export type KpBrief = { id: string, term: string, reading: string | null, meaningZh: string | null, pos?: string | null, type: 'vocab' | 'grammar', level: string, content?: Record<string, unknown> }
 
 export function stemHash(stem: string, options: string[]) {
   const norm = (stem + '|' + [...options].sort().join('|')).replace(/\s+/g, '')
@@ -224,15 +224,15 @@ ${list}
 - term：與上方原文一致。
 - reading：平假名讀音（片假名詞就寫片假名）。
 - meaningZh：台灣繁體中文意思，簡短，可用「；」分隔多義（最多 3 個義項）。若原本已有英文或不精確意思，請改寫成自然的台灣用語。
-- pos：詞性（名詞／動詞Ⅰ／動詞Ⅱ／動詞Ⅲ／い形容詞／な形容詞／副詞／接續詞／助詞／慣用句 等）。
+- pos：詞性，用「中文標籤（英文縮寫）」例如「名詞（n.）」「動詞Ⅰ（v.）」「動詞Ⅱ（v.）」「動詞Ⅲ（vs.）」「い形容詞（i-adj.）」「な形容詞（na-adj.）」「副詞（adv.）」。動詞請標Ⅰ／Ⅱ／Ⅲ（五段／一段／する）。
 - examples：3 句短例句，展示不同搭配或情境，每句附台灣繁體中文翻譯，例句其他詞彙不超過該等級。
 - confusables：0–2 個形近、音近或意思相近容易搞混的詞，diff 一句話講差別。
 - memo：一句話記憶提示（可用漢字聯想、常見搭配）。`
 
-  const out = await callStructured(vocabContentSchema, SYSTEM_BASE, user, { kind: 'vocab_content', model, reasoning: 'minimal', maxOutputTokens: 16000 })
+  const out = await callStructured(vocabContentSchema, SYSTEM_BASE, user, { kind: 'vocab_content', model, reasoning: 'low', maxOutputTokens: 16000 })
   let updated = 0
   for (const item of out.items) {
-    const kp = kps.find(k => k.term === item.term)
+    const kp = matchKp(kps, item.term)
     if (!kp) continue
     await db.update(schema.knowledgePoints).set({
       reading: kp.reading || item.reading,
@@ -478,14 +478,25 @@ export async function kpsNeedingQuestions(type: 'vocab' | 'grammar', level: Leve
   `)
   return (rows as unknown as Array<{ id: string, term: string, reading: string | null, meaning_zh: string | null, type: 'vocab' | 'grammar', level: string, content: Record<string, unknown>, qn: number }>)
     .filter(r => r.qn < minQuestions)
-    .map(r => ({ id: r.id, term: r.term, reading: r.reading, meaningZh: r.meaning_zh, type: r.type, level: r.level, content: r.content, qn: r.qn }))
+    .map(r => ({ id: r.id, term: r.term, reading: r.reading, meaningZh: r.meaning_zh, pos: null, type: r.type, level: r.level, content: r.content, qn: r.qn }))
+}
+
+function matchKp(kps: KpBrief[], term: string) {
+  const t = term.trim()
+  return kps.find(k => k.term === t)
+    ?? kps.find(k => k.term.replace(/\s+/g, '') === t.replace(/\s+/g, ''))
+    ?? kps.find(k => t.includes(k.term) || k.term.includes(t))
+}
+
+function toBrief(r: { id: string, term: string, reading: string | null, meaningZh: string | null, pos: string | null, type: 'vocab' | 'grammar', level: string, content: unknown }): KpBrief {
+  return { id: r.id, term: r.term, reading: r.reading, meaningZh: r.meaningZh, pos: r.pos, type: r.type, level: r.level, content: r.content as Record<string, unknown> }
 }
 
 export async function kpsById(ids: string[]): Promise<KpBrief[]> {
   if (!ids.length) return []
   const db = useDb()
   const rows = await db.query.knowledgePoints.findMany({ where: inArray(schema.knowledgePoints.id, ids) })
-  return rows.map(r => ({ id: r.id, term: r.term, reading: r.reading, meaningZh: r.meaningZh, type: r.type, level: r.level, content: r.content as Record<string, unknown> }))
+  return rows.map(toBrief)
 }
 
 export async function kpsWithoutContent(type: 'vocab' | 'grammar', level: Level, limit: number) {
@@ -495,5 +506,5 @@ export async function kpsWithoutContent(type: 'vocab' | 'grammar', level: Level,
     orderBy: [schema.knowledgePoints.priority, schema.knowledgePoints.createdAt],
     limit
   })
-  return rows.map(r => ({ id: r.id, term: r.term, reading: r.reading, meaningZh: r.meaningZh, type: r.type, level: r.level, content: r.content as Record<string, unknown> }))
+  return rows.map(toBrief)
 }

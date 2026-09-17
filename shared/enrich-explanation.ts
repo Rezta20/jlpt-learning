@@ -1,4 +1,5 @@
 import type { ExampleSentence, Explanation, KnowledgeContent, OptionNote } from './types'
+import { displayMeaning } from './vocab-display'
 
 export const ENRICH_QTYPES = new Set(['orthography', 'kanji_reading', 'context'])
 
@@ -101,10 +102,7 @@ function lookupOption(
 }
 
 function meaningOf(v: VocabBrief): string | undefined {
-  const core = v.content?.coreMeaning?.trim()
-  if (core) return core
-  const meaning = v.meaningZh?.trim()
-  return meaning || undefined
+  return displayMeaning(v) || undefined
 }
 
 function usageOf(v: VocabBrief): string | undefined {

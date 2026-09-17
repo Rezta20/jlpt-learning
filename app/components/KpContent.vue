@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { KnowledgePointDto } from '~~/shared/types'
+import { displayMeaning, englishGloss, posTags } from '~~/shared/vocab-display'
 
 const props = defineProps<{ kp: KnowledgePointDto, compact?: boolean }>()
 
@@ -28,11 +29,12 @@ const ytSearch = computed(() => `https://www.youtube.com/results?search_query=${
           :label="kp.level"
         />
         <span
-          v-if="kp.pos"
+          v-for="tag in posTags(kp.pos)"
+          :key="tag"
           class="text-xs text-muted"
-        >{{ kp.pos }}</span>
+        >{{ tag }}</span>
       </div>
-      <p class="mt-1 text-lg">{{ kp.content?.coreMeaning || kp.meaningZh }}</p>
+      <p class="mt-1 text-lg">{{ displayMeaning(kp) || englishGloss(kp) || kp.content?.coreMeaning || kp.meaningZh }}</p>
     </div>
 
     <dl
