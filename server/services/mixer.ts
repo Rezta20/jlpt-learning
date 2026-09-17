@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { useDb, schema } from '../db'
 import type { Level, Skill } from '../../shared/types'
+import { AWKWARD_SEED_STEM_RE } from '../../shared/practice-question'
 import { estimateLevel, levelAbove } from './level'
 import { getPlanWeek } from '../../shared/plan'
 import { todayStr, startOfLocalDay, sqlTs } from '../utils/dates'
@@ -89,6 +90,17 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
   const kpFilter = input.kpIds?.length
     ? sql`and exists (select 1 from ${schema.questionKnowledgePoints} kf where kf.question_id = q.id and kf.knowledge_point_id in (${inList(input.kpIds)}))`
     : sql``
+  // Skip OpenJLPT-punched context items and literary seed vocab stems; prefer AI items.
+  const practiceQuestionFilter = sql`
+    and q.source_ref is distinct from 'bank:context'
+    and not (
+      q.source = 'seed' and q.skill = 'vocab' and (
+        q.stem ~ ${AWKWARD_SEED_STEM_RE}
+        or (q.source_ref in ('bank:kanji_reading', 'bank:orthography') and char_length(q.stem) > 48)
+      )
+    )
+  `
+  const preferAi = sql`(q.source = 'ai') desc`
 
   const baseSelect = sql`
     select q.id, q.passage_id,
@@ -121,10 +133,10 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
       from ${schema.questions} q
       join ${schema.questionKnowledgePoints} qk on qk.question_id = q.id
       left join ${schema.userQuestionState} uq on uq.question_id = q.id and uq.user_id = ${input.userId}
-      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter}
+      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${practiceQuestionFilter}
         and qk.knowledge_point_id in (${inList(input.kpIds)})
       group by q.id
-      order by min(coalesce(uq.seen, 0)) asc, random()
+      order by ${preferAi}, min(coalesce(uq.seen, 0)) asc, random()
       limit ${input.count * 3}
     `)
     remaining -= take(rows as unknown as Candidate[], Math.min(remaining, want('learn')), 'learn')
@@ -138,11 +150,11 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
       join ${schema.questionKnowledgePoints} qk on qk.question_id = q.id
       join ${schema.userKnowledgeState} s on s.knowledge_point_id = qk.knowledge_point_id and s.user_id = ${input.userId}
       left join ${schema.userQuestionState} uq on uq.question_id = q.id and uq.user_id = ${input.userId}
-      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter}
+      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${practiceQuestionFilter}
         and s.learned_at >= ${sqlTs(dayStart)}
         and (uq.last_seen_at is null or uq.last_seen_at < ${ago3h})
       group by q.id
-      order by random()
+      order by ${preferAi}, random()
       limit ${input.count * 3}
     `)
     remaining -= take(rows as unknown as Candidate[], Math.min(remaining, want('todayNew')), 'todayNew')
@@ -156,11 +168,11 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
       join ${schema.questionKnowledgePoints} qk on qk.question_id = q.id
       join ${schema.userKnowledgeState} s on s.knowledge_point_id = qk.knowledge_point_id and s.user_id = ${input.userId}
       left join ${schema.userQuestionState} uq on uq.question_id = q.id and uq.user_id = ${input.userId}
-      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter}
+      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter} ${practiceQuestionFilter}
         and s.due <= ${nowTs} and s.state <> 0
         and (uq.last_seen_at is null or uq.last_seen_at < ${ago20h})
       group by q.id
-      order by min(s.due) asc, min(coalesce(uq.seen, 0)) asc, random()
+      order by ${preferAi}, min(s.due) asc, min(coalesce(uq.seen, 0)) asc, random()
       limit ${input.count * 3}
     `)
     remaining -= take(rows as unknown as Candidate[], Math.min(remaining, want('review')), 'review')
@@ -173,12 +185,12 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
       from ${schema.questions} q
       join ${schema.userQuestionState} uq on uq.question_id = q.id and uq.user_id = ${input.userId}
       left join ${schema.questionKnowledgePoints} qk on qk.question_id = q.id
-      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter}
+      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter} ${practiceQuestionFilter}
         and uq.wrong_streak > 0
         and (uq.retry_due is null or uq.retry_due <= ${nowTs})
         and uq.last_wrong_at > ${ago14d}
       group by q.id, uq.retry_due, uq.last_wrong_at
-      order by uq.retry_due asc nulls first, uq.last_wrong_at asc, random()
+      order by ${preferAi}, uq.retry_due asc nulls first, uq.last_wrong_at asc, random()
       limit ${input.count * 3}
     `)
     remaining -= take(rows as unknown as Candidate[], Math.min(remaining, want('mistake')), 'mistake')
@@ -193,11 +205,11 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
       left join ${schema.questionKnowledgePoints} qk on qk.question_id = q.id
       left join ${schema.userQuestionState} uq on uq.question_id = q.id and uq.user_id = ${input.userId}
       left join ${schema.userKnowledgeState} s on s.knowledge_point_id = qk.knowledge_point_id and s.user_id = ${input.userId}
-      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter}
+      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter} ${practiceQuestionFilter}
         and q.level in (${inList(lvls)})
         and uq.question_id is null
       group by q.id
-      order by (count(s.knowledge_point_id) > 0) desc, random()
+      order by ${preferAi}, (count(s.knowledge_point_id) > 0) desc, random()
       limit ${n * 4}
     `)
     return take(rows as unknown as Candidate[], n, bucket)
@@ -218,11 +230,11 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
       from ${schema.questions} q
       left join ${schema.questionKnowledgePoints} qk on qk.question_id = q.id
       left join ${schema.userQuestionState} uq on uq.question_id = q.id and uq.user_id = ${input.userId}
-      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter}
+      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter} ${practiceQuestionFilter}
         and q.level in (${inList(levels)})
         and (uq.last_seen_at is null or uq.last_seen_at < ${ago20h})
       group by q.id
-      order by min(coalesce(uq.seen, 0)) asc, random()
+      order by ${preferAi}, min(coalesce(uq.seen, 0)) asc, random()
       limit ${remaining * 3}
     `)
     remaining -= take(rows as unknown as Candidate[], remaining, 'new')
@@ -233,9 +245,9 @@ export async function pickQuestions(input: MixInput): Promise<Picked[]> {
       ${baseSelect}
       from ${schema.questions} q
       left join ${schema.questionKnowledgePoints} qk on qk.question_id = q.id
-      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter}
+      where q.quality = 'ok' and ${skillFilter} ${qtypeFilter} ${kpFilter} ${practiceQuestionFilter}
       group by q.id
-      order by random()
+      order by ${preferAi}, random()
       limit ${remaining * 3}
     `)
     take(rows as unknown as Candidate[], remaining, 'new')

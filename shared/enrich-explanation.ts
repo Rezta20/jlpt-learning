@@ -1,5 +1,5 @@
 import type { ExampleSentence, Explanation, KnowledgeContent, OptionNote } from './types'
-import { displayMeaning } from './vocab-display'
+import { displayMeaning, hasZhText } from './vocab-display'
 
 export const ENRICH_QTYPES = new Set(['orthography', 'kanji_reading', 'context'])
 
@@ -34,9 +34,9 @@ export function enrichExplanation(input: {
     ?? null
 
   const fill = target?.term || options[answerIndex] || ''
-  const stemMeaning = input.stemMeaning?.zh
-    ? input.stemMeaning
-    : findStemMeaning(input.stem, target, fill)
+  const stemMeaning = zhExample(input.stemMeaning)
+    ?? findStemMeaning(input.stem, target, fill)
+    ?? zhExample(explanation.stemMeaning)
 
   const whyWrong = options.map((option, i) => {
     if (i === answerIndex) return ''
@@ -58,17 +58,18 @@ export function enrichExplanation(input: {
   })
 
   const extraExamples = (target?.content?.examples ?? [])
-    .filter(e => e.ja && normalize(e.ja) !== normalize(stemMeaning?.ja ?? ''))
+    .filter(e => e.ja && hasZhText(e.zh) && normalize(e.ja) !== normalize(stemMeaning?.ja ?? ''))
     .slice(0, 2)
+  const storedExamples = (explanation.examples ?? []).filter(e => hasZhText(e.zh))
 
   return {
     ...explanation,
     whyCorrect: enrichWhyCorrect(explanation.whyCorrect, qtype, target),
     whyWrong,
     coreConcept: enrichCore(explanation.coreConcept, target),
-    examples: explanation.examples?.length ? explanation.examples : extraExamples,
+    examples: storedExamples.length ? storedExamples : extraExamples,
     optionNotes,
-    stemMeaning: stemMeaning ?? explanation.stemMeaning
+    stemMeaning
   }
 }
 
@@ -116,7 +117,12 @@ function usageOf(v: VocabBrief): string | undefined {
 function firstExample(v: VocabBrief, skipJa?: string): ExampleSentence | undefined {
   const examples = v.content?.examples ?? []
   const skip = skipJa ? normalize(skipJa) : ''
-  return examples.find(e => e.ja && (!skip || normalize(e.ja) !== skip)) ?? examples[0]
+  return examples.find(e => e.ja && hasZhText(e.zh) && (!skip || normalize(e.ja) !== skip))
+}
+
+function zhExample(e?: ExampleSentence | null): ExampleSentence | undefined {
+  if (!e?.ja || !hasZhText(e.zh)) return undefined
+  return e
 }
 
 function normalize(s: string) {
@@ -138,7 +144,7 @@ function findStemMeaning(stem: string | undefined, target: VocabBrief | null | u
   const restored = restoreSentence(stem, fill)
   if (!restored || restored.length < 4) return undefined
   const n = normalize(restored)
-  const examples = (target.content?.examples ?? []).filter(e => e.zh)
+  const examples = (target.content?.examples ?? []).filter(e => hasZhText(e.zh))
   const exact = examples.find(e => normalize(e.ja) === n)
   if (exact) return { ja: exact.ja, zh: exact.zh }
   const loose = examples.find((e) => {

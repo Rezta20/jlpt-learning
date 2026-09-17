@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Explanation, OptionNote } from '~~/shared/types'
+import { hasZhText } from '~~/shared/vocab-display'
 
 const props = defineProps<{
   explanation: Explanation
@@ -56,7 +57,7 @@ async function flag() {
 <template>
   <div class="space-y-4 text-[15px] leading-relaxed">
     <!-- stem meaning -->
-    <section v-if="explanation.stemMeaning?.ja && explanation.stemMeaning?.zh">
+    <section v-if="explanation.stemMeaning?.ja && hasZhText(explanation.stemMeaning?.zh)">
       <div class="mb-1 text-xs font-medium uppercase tracking-wide text-muted">這句話的意思</div>
       <div class="ja">{{ explanation.stemMeaning.ja }}</div>
       <div class="text-sm text-muted">{{ explanation.stemMeaning.zh }}</div>

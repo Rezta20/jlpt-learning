@@ -1,6 +1,6 @@
 /**
  * Build a practice bank without calling OpenAI.
- * Vocab: kanji reading / orthography / context-from-example.
+ * Vocab: kanji reading / orthography (short everyday stems only).
  * Grammar + reading: authored originals in scripts/data/.
  */
 import { createHash } from 'node:crypto'
@@ -9,6 +9,7 @@ import { sql } from 'drizzle-orm'
 import * as schema from '../server/db/schema'
 import type { Explanation, ExampleSentence } from '../server/db/schema'
 import { enrichExplanation } from '../shared/enrich-explanation'
+import { isAwkwardSeedStem } from '../shared/practice-question'
 import { GRAMMAR_QUESTIONS } from './data/grammar-questions'
 import { PASSAGES } from './data/passages'
 
@@ -75,6 +76,12 @@ function exampleWithTerm(v: VocabRow) {
   return v.content?.examples?.find(e => isolatedOccurrence(e.ja, v.term))
 }
 
+function usableExample(ja: string | undefined, term: string) {
+  if (!ja || !isolatedOccurrence(ja, term)) return false
+  if (isAwkwardSeedStem(ja)) return false
+  return ja.replace(/\s+/g, '').length <= 42
+}
+
 const hasKanji = (s: string) => /[\u4e00-\u9fff]/.test(s)
 
 function explainReading(v: VocabRow, options: string[], answerIndex: number, vocabs: VocabRow[], stem?: string, stemMeaning?: ExampleSentence): Explanation {
@@ -112,28 +119,6 @@ function explainOrtho(v: VocabRow, options: string[], answerIndex: number, vocab
     options,
     answerIndex,
     qtype: 'orthography',
-    stem,
-    vocabs,
-    target: v,
-    stemMeaning
-  })
-}
-
-function explainContext(v: VocabRow, options: string[], answerIndex: number, vocabs: VocabRow[], stem?: string, stemMeaning?: ExampleSentence): Explanation {
-  const reading = (v.reading || '').trim()
-  const label = reading ? `${v.term}（${reading}）` : v.term
-  const base: Explanation = {
-    whyCorrect: `這個空格要填「${label}」${v.meaningZh ? `，意思接近「${v.meaningZh}」` : ''}。`,
-    whyWrong: options.map((o, i) => (i === answerIndex ? '' : `「${o}」放進這個句子，意思或搭配不自然。`)),
-    coreConcept: v.meaningZh || label,
-    examples: [],
-    memoryTip: '先看空格前後的助詞和場面，再選詞。'
-  }
-  return enrichExplanation({
-    explanation: base,
-    options,
-    answerIndex,
-    qtype: 'context',
     stem,
     vocabs,
     target: v,
@@ -210,12 +195,6 @@ async function flushQuestions(db: Db, rows: QRow[]) {
 function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
   const readings = vocabs.map(v => (v.reading || '').trim()).filter(r => r.length >= 2)
   const kanjiTerms = vocabs.filter(v => hasKanji(v.term)).map(v => v.term)
-  const byLevel = new Map<string, string[]>()
-  for (const v of vocabs) {
-    const arr = byLevel.get(v.level) ?? []
-    arr.push(v.term)
-    byLevel.set(v.level, arr)
-  }
   const out: QRow[] = []
 
   for (const v of vocabs) {
@@ -227,7 +206,8 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
       const placedR = place(reading, dRead, rand)
       if (placedR) {
         const example = exampleWithTerm(v)
-        const stem = example
+        const useEx = usableExample(example?.ja, v.term)
+        const stem = useEx && example
           ? example.ja.replace(v.term, `【${v.term}】`)
           : `次の文の【　　】の漢字の読み方として最もよいものを選んでください。\n【${v.term}】`
         out.push({
@@ -237,7 +217,7 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
           stem,
           options: placedR.options,
           answerIndex: placedR.answerIndex,
-          explanation: explainReading(v, placedR.options, placedR.answerIndex, vocabs, stem, example ? { ja: example.ja, zh: example.zh } : undefined),
+          explanation: explainReading(v, placedR.options, placedR.answerIndex, vocabs, stem, useEx && example ? { ja: example.ja, zh: example.zh } : undefined),
           source: 'seed',
           sourceRef: 'bank:kanji_reading',
           stemHash: stemHash(stem, placedR.options),
@@ -249,7 +229,8 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
       const placedK = place(v.term, dKan, rand)
       if (placedK) {
         const example = exampleWithTerm(v)
-        const stem = example
+        const useEx = usableExample(example?.ja, v.term)
+        const stem = useEx && example
           ? example.ja.replace(v.term, `【${reading}】`)
           : `次の文の【　　】のひらがなを漢字で書くとき、最もよいものを選んでください。\n【${reading}】`
         out.push({
@@ -259,37 +240,12 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
           stem,
           options: placedK.options,
           answerIndex: placedK.answerIndex,
-          explanation: explainOrtho(v, placedK.options, placedK.answerIndex, vocabs, stem, example ? { ja: example.ja, zh: example.zh } : undefined),
+          explanation: explainOrtho(v, placedK.options, placedK.answerIndex, vocabs, stem, useEx && example ? { ja: example.ja, zh: example.zh } : undefined),
           source: 'seed',
           sourceRef: 'bank:orthography',
           stemHash: stemHash(stem, placedK.options),
           kpId: v.id
         })
-      }
-    }
-
-    const ex = exampleWithTerm(v)
-    if (ex && ex.ja.length >= 6) {
-      const pool = byLevel.get(v.level) ?? []
-      const dCtx = pickN(pool, v.term, 3, rand, s => Math.abs(s.length - v.term.length) <= 2 && !ex.ja.includes(s))
-      const placedC = place(v.term, dCtx, rand)
-      if (placedC) {
-        const stem = ex.ja.replace(v.term, '（　　）')
-        if (stem.includes('（　　）')) {
-          out.push({
-            level: v.level,
-            skill: 'vocab',
-            qtype: 'context',
-            stem,
-            options: placedC.options,
-            answerIndex: placedC.answerIndex,
-            explanation: explainContext(v, placedC.options, placedC.answerIndex, vocabs, stem, { ja: ex.ja, zh: ex.zh }),
-            source: 'seed',
-            sourceRef: 'bank:context',
-            stemHash: stemHash(stem, placedC.options),
-            kpId: v.id
-          })
-        }
       }
     }
   }
