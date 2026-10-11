@@ -1307,7 +1307,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'contrast',
     stem: '毎日練習している。だから、試合に勝てる（　　）。',
     options: ['ところだった', 'わけだ', 'はずがない', 'わけにはいかない'],
-    answer: 3,
+    answer: 1,
     why: '每天練習導致能贏，是合理推論。',
     wrong: ['ところだった 是「差一點」。', '', 'はずがない 是「不可能」，語氣相反。', 'わけにはいかない 是「不能」，不是推論。'],
     core: 'わけだ＝也就是說（合理結論）。'
@@ -1317,7 +1317,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '健康のためには、野菜を（　　）。',
     options: ['食べるわけがない', '食べようがない', 'たくさん食べることだ', '食べてはいけない'],
-    answer: 2,
+    answer: 1,
     why: '給建議「就是要多吃」用 辭書形＋ことだ。',
     wrong: ['わけがない 是不可能。', 'ようがない 是沒辦法。', '', 'てはいけない 是禁止。'],
     core: 'ことだ＝就是要〜（忠告）。'
@@ -1527,7 +1527,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'この仕事は大変な（　　）、給料も安い。',
     options: ['わりに', 'ばかりか', 'ばかりに', 'ために'],
-    answer: 3,
+    answer: 1,
     why: '不但辛苦而且薪水還低。',
     wrong: ['わりに 是「與〜不相稱」。', '', 'ばかりに 是就因為。', 'ために 是原因或目的。'],
     core: 'ばかりか〜も＝不但〜連〜也。'
@@ -1537,7 +1537,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '彼女は料理が上手な（　　）、ピアノも弾けます。',
     options: ['ことにして', 'だけでなく', 'ばかりに', 'わけではなく'],
-    answer: 3,
+    answer: 1,
     why: '不只會做菜，還會彈鋼琴。',
     wrong: ['ことにして 不通。', '', 'ばかりに 是原因。', 'わけではなく 是部分否定。'],
     core: 'だけでなく〜も＝不只〜也〜。'
@@ -1547,7 +1547,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'この薬は頭痛（　　）、熱にも効きます。',
     options: ['にとって', 'だけでなく', 'ばかりか', 'のために'],
-    answer: 3,
+    answer: 1,
     why: '不只對頭痛，對發燒也有效。',
     wrong: ['にとって 是對誰而言。', '', 'ばかりか 語氣較強（甚至）。', 'のために 是目的。'],
     core: 'だけでなく＝不僅〜而且。'
@@ -1557,7 +1557,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '子供の服が泥（　　）になっている。',
     options: ['っぽい', 'だらけ', 'ばかり', 'がち'],
-    answer: 3,
+    answer: 1,
     why: '滿是泥巴：名詞＋だらけ（負面）。',
     wrong: ['っぽい 是「像」。', '', 'ばかり 不能接名詞表「滿是」。', 'がち 接動詞。'],
     core: 'だらけ＝滿是（負面：泥、錯誤、傷）。'
@@ -1567,7 +1567,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'このレポートは間違い（　　）です。',
     options: ['だらけ', 'ばかり', 'がち', 'げ'],
-    answer: 0,
+    answer: 1,
     why: '滿是錯誤。',
     wrong: ['', 'ばかり 是「光是」，不能這樣接。', 'がち 是傾向。', 'げ 是樣子。'],
     core: 'だらけ＝到處都是（不好的東西）。'
@@ -1880,7 +1880,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'このご飯、多すぎて（　　）。',
     options: ['食べかけです', '食べきれません', '食べられません', '食べてしまいません'],
-    answer: 3,
+    answer: 1,
     why: '太多吃不完：ます形去ます＋きれない。',
     wrong: ['かけ 是做到一半。', '', '食べられない 是單純「不能吃」。', 'てしまわない 是「沒做完」。'],
     core: 'きれない＝做不完、徹底做不到。'
@@ -1890,7 +1890,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '疲れて死にそうな（　　）だ。',
     options: ['くらい', 'ほど', 'ばかり', 'わけ'],
-    answer: 0,
+    answer: 1,
     why: '累到快死的程度（誇張）。',
     wrong: ['', 'ほど 語氣較重。', 'ばかり 不表程度。', 'わけ 是理由。'],
     core: 'くらい＝到〜程度（誇飾）。'
@@ -1970,7 +1970,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'このペンは（　　）。',
     options: ['書きづらい', '書きがたい', '書きにくい', '書けない'],
-    answer: 0,
+    answer: 1,
     why: '不好寫（使用上的困難）：ます形去ます＋づらい。',
     wrong: ['', 'がたい 偏情感。', 'にくい 接近但 づらい 更口語。', 'ない 太絕對。'],
     core: 'づらい＝（心理上）難以〜、不好〜。'
@@ -1992,7 +1992,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '子供が寝ている（　　）、掃除をしておきます。',
     options: ['とたん', '最中に', 'たびに', 'うちに'],
-    answer: 3,
+    answer: 1,
     why: '趁小孩睡覺的時候打掃。',
     wrong: ['とたん 是一〜就。', '最中 不加「寝ている」。', 'たびに 是每次。', ''],
     core: 'うちに＝趁著〜期間。'
@@ -2012,7 +2012,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '一日（　　）運動しています。',
     options: ['たびに', 'につき', 'おきに', 'ごとに'],
-    answer: 2,
+    answer: 0,
     why: '每隔一天（跳一天）運動。',
     wrong: ['たびに 不接數字。', 'につき 較正式。', '', 'ごとに 是每一天。'],
     core: 'おきに＝每隔〜。'
@@ -2182,7 +2182,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '準備して（　　）から、行こう。',
     options: ['おく', 'みます', 'しまいます', 'あります'],
-    answer: 2,
+    answer: 0,
     why: '口語：しておく→しとく（事先準備）。',
     wrong: ['', 'てみます 是嘗試。', 'てしまいます 較正式。', 'てあります 不口語。'],
     core: 'とく＝ておく口語。'
@@ -2192,7 +2192,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'スーパーへ行く（　　）、郵便局にも寄ります。',
     options: ['ついでに', 'うちに', 'とたん', 'たびに'],
-    answer: 2,
+    answer: 0,
     why: '去超市順便也去郵局。',
     wrong: ['', 'うちに 是趁。', 'とたん 是立刻。', 'たびに 是每次。'],
     core: 'ついでに＝順便。'
@@ -2202,7 +2202,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '彼には本当のことを（　　）。',
     options: ['言いづらい', '言いがたい', '言えない', '言いにくい'],
-    answer: 2,
+    answer: 0,
     why: '（心理上）不好對他說實話。',
     wrong: ['', 'がたい 更書面。', 'ない 太絕對。', 'にくい 接近。'],
     core: 'づらい＝（心理上）難以〜。'
@@ -2212,7 +2212,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '医者に相談して（　　）、この薬は飲めません。',
     options: ['からでないと', 'からには', 'からでも', 'からこそ'],
-    answer: 2,
+    answer: 0,
     why: '不先諮詢醫生就不能吃藥。',
     wrong: ['', 'からには 是既然。', 'からでも 不通。', 'からこそ 是正因為。'],
     core: 'てからでないと＝不先〜就不行。'
@@ -2224,7 +2224,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '彼は遊んで（　　）、勉強しません。',
     options: ['ばかりいる', 'ばかりに', 'ばかりか', 'ばかりだ'],
-    answer: 2,
+    answer: 0,
     why: '老是在玩（持續狀態）：て形＋ばかりいる。',
     wrong: ['', 'ばかりに 是原因。', 'ばかりか 是不但。', 'ばかりだ 接辭書形。'],
     core: 'てばかりいる＝老是在〜。'
@@ -2234,7 +2234,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'テレビを見て（　　）で、時間を無駄にした。',
     options: ['ばかりいた', 'ばかりだった', 'ばかりに', 'ばかりか'],
-    answer: 2,
+    answer: 0,
     why: '一直在看電視浪費時間。',
     wrong: ['', 'ばかりだった 接辭書形。', 'ばかりに 是原因。', 'ばかりか 不是狀態。'],
     core: 'てばかりいる＝一直在〜（批評）。'
@@ -2244,7 +2244,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '日本へ来て（　　）、一度も帰国していません。',
     options: ['以来', '以後', '以降', '以前'],
-    answer: 2,
+    answer: 0,
     why: '來日本之後一直沒回國：て形＋以来。',
     wrong: ['', '以後 不接て形。', '以降 較正式。', '以前 是之前。'],
     core: 'て以来＝自從〜以來（持續到現在）。'
@@ -2254,7 +2254,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '結婚して（　　）、幸せです。',
     options: ['以来', 'ので', 'ために', 'から'],
-    answer: 2,
+    answer: 0,
     why: '自從結婚以來一直幸福。',
     wrong: ['', 'ので 是原因。', 'ために 是目的。', 'から 不強調持續。'],
     core: 'て以来＝從〜之後一直。'
@@ -2264,7 +2264,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '謝れば、（　　）。',
     options: ['許して済む', '許されるはずだ', '許してくれる', '許してもらえる'],
-    answer: 2,
+    answer: 0,
     why: '道歉就能解決（不用更麻煩的事）。',
     wrong: ['', 'はずだ 是推測。', 'てくれる 不是解決。', 'てもらえる 不是「解決」。'],
     core: 'て済む＝〜就能解決。'
@@ -2274,7 +2274,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '今回は注意だけで（　　）。',
     options: ['済めた', '済んだ', '済ませた', '済みます'],
-    answer: 3,
+    answer: 0,
     why: '這次只警告就解決了。',
     wrong: ['済めた 不存在。', '', '済ませた 是「完成」不是「解決」。', '済みます 時態錯。'],
     core: 'て済む＝只要〜就好。'
@@ -2284,7 +2284,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '先生の言った（　　）にやってください。',
     options: ['ために', 'とおり', 'まま', 'ように'],
-    answer: 3,
+    answer: 1,
     why: '按照老師說的去做：た形＋とおりに。',
     wrong: ['ために 是目的。', '', 'まま 是維持原狀。', 'ように 是希望。'],
     core: 'とおり＝按照〜、如〜所說。'
@@ -2294,7 +2294,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '計画（　　）、進んでいます。',
     options: ['どおり', 'まま', 'ように', 'とおり'],
-    answer: 0,
+    answer: 1,
     why: '按照計畫進行：名詞＋どおり。',
     wrong: ['', 'まま 是狀態維持。', 'ように 不接名詞。', 'とおり 接動詞。'],
     core: 'どおり＝按照〜（名詞後）。'
@@ -2314,7 +2314,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '日本語（　　）英語（　　）、いろいろ勉強したい。',
     options: ['も、も', 'だけ、だけ', 'や、など', 'とか、とか'],
-    answer: 3,
+    answer: 0,
     why: '日語啦英語啦，想學很多。',
     wrong: ['も 是「也」。', 'だけ 是「只」。', 'や 較書面。', ''],
     core: 'とか〜とか＝〜啦〜啦（口語）。'
@@ -2334,7 +2334,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '日本人（　　）、これは当然です。',
     options: ['には', 'にとって', 'に', 'として'],
-    answer: 3,
+    answer: 0,
     why: '作為日本人，這是當然的。',
     wrong: ['には 不對。', 'にとって 是「對〜而言」。', 'に 不對。', ''],
     core: 'として＝從〜的立場來說。'
@@ -2354,7 +2354,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '行く（　　）、一人では行きません。',
     options: ['なら', 'としても', 'のに', 'ばかりに'],
-    answer: 1,
+    answer: 0,
     why: '就算去，也不一個人去。',
     wrong: ['なら 是「如果」不是「即使」。', '', 'のに 語氣不同。', 'ばかりに 是原因。'],
     core: 'としても＝即使（假定）。'
@@ -2374,7 +2374,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '家族（　　）旅行に行きます。',
     options: ['と', 'とともに', 'で', 'を'],
-    answer: 1,
+    answer: 0,
     why: '和家人一起去旅行（正式）。',
     wrong: ['と 較口語。', '', 'で 不對。', 'を 不對。'],
     core: 'とともに＝與〜一起（書面）。'
@@ -2394,7 +2394,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '忘れ（　　）、メモしておこう。',
     options: ['ないように', 'ないうちに', 'ないで', 'ないから'],
-    answer: 1,
+    answer: 0,
     why: '趁還沒忘記先記下來。',
     wrong: ['ように 不是「趁」。', '', 'で 不對。', 'から 是理由。'],
     core: 'ないうちに＝趁著還沒〜。'
@@ -2434,7 +2434,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '彼が来る（　　）、思ってもみなかった。',
     options: ['とは', 'なんて', 'のは', 'のが'],
-    answer: 1,
+    answer: 0,
     why: '他竟然會來，想都沒想過（驚訝）。',
     wrong: ['とは 較正式。', '', 'のは 不表驚訝。', 'のが 不對。'],
     core: 'なんて＝竟然〜（驚訝）。'
@@ -2454,7 +2454,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '会議は東京（　　）行われます。',
     options: ['で', 'において', 'に', 'には'],
-    answer: 1,
+    answer: 0,
     why: '會議在東京舉行（正式）。',
     wrong: ['で 口語。', '', 'に 不對。', 'には 不對。'],
     core: 'において＝在〜（地點；書面）。'
@@ -2484,7 +2484,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '行く（　　）、行かない（　　）、連絡してください。',
     options: ['にしても、にしても', 'としても、としても', 'のに、のに', 'なら、なら'],
-    answer: 2,
+    answer: 0,
     why: '不管去還是不去都請聯絡。',
     wrong: ['', 'としても 語氣不同。', 'のに 是明明卻。', 'なら 不表「不管」。'],
     core: 'にしても＝不管〜還是〜。'
@@ -2494,7 +2494,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '誰が言った（　　）、信じられません。',
     options: ['のに', 'にしても', 'ために', 'ばかりに'],
-    answer: 1,
+    answer: 0,
     why: '不管誰說的都不相信。',
     wrong: ['のに 不是「不管」。', '', 'ために 是目的。', 'ばかりに 是原因。'],
     core: 'にしても＝即使〜也。'
@@ -2514,7 +2514,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '彼の話は噂（　　）。',
     options: ['しかない', 'にすぎない', 'ばかりだ', 'だらけだ'],
-    answer: 1,
+    answer: 0,
     why: '他的話只不過是謠言。',
     wrong: ['しかない 不夠書面。', '', 'ばかりだ 不對。', 'だらけだ 不對。'],
     core: 'にすぎない＝不過是〜罷了。'
@@ -2534,7 +2534,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '日本（　　）、台湾は小さい。',
     options: ['より', 'に比べて', 'から', 'で'],
-    answer: 1,
+    answer: 0,
     why: '和日本相比，台灣小。',
     wrong: ['より 也可但選項裡 に比べて 更明確。', '', 'から 不是比較。', 'で 不對。'],
     core: 'に比べて＝與〜相比。'
@@ -2554,7 +2554,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '彼は嘘をついている（　　）。',
     options: ['だろう', 'に決まっている', 'らしい', 'ようだ'],
-    answer: 1,
+    answer: 0,
     why: '他肯定在說謊（確信）。',
     wrong: ['だろう 不夠肯定。', '', 'らしい 是聽說。', 'ようだ 是好像。'],
     core: 'に決まっている＝一定是〜。'
@@ -2594,7 +2594,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '環境問題（　　）、議論します。',
     options: ['について', 'に関して', 'にとって', 'として'],
-    answer: 1,
+    answer: 0,
     why: '關於環境問題進行討論（書面）。',
     wrong: ['について 也可。', '', 'にとって 不對。', 'として 是身分。'],
     core: 'に関して＝關於（書面、正式）。'
@@ -2614,7 +2614,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: 'これは間違っている（　　）。',
     options: ['だろう', 'んじゃないか', 'かもしれない', 'らしい'],
-    answer: 1,
+    answer: 0,
     why: '這是不是錯了（口語推測）。',
     wrong: ['だろう 不是疑問。', '', 'かもしれない 不夠確定。', 'らしい 不是疑問。'],
     core: 'んじゃないか＝是不是〜（口語）。'
@@ -2634,7 +2634,7 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     qtype: 'grammar_form',
     stem: '今日は休み（　　）のに、出勤させられた。',
     options: ['だった', 'のはずだった', 'だろう', 'に違いなかった'],
-    answer: 1,
+    answer: 0,
     why: '本應該是休假卻被叫來上班。',
     wrong: ['だった 不是「本應」。', '', 'だろう 不對。', 'に違いなかった 不對。'],
     core: 'はずだった＝原本該〜。'
@@ -2882,16 +2882,6 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
   {
     term: '〜一方（で）',
     qtype: 'grammar_form',
-    stem: '彼は優しい（　　）、厳しい面もあります。',
-    options: ['のに', '一方で', 'ために', 'せいで'],
-    answer: 1,
-    why: '他一方面溫柔，另一方面也有嚴格的一面。',
-    wrong: ['のに 不是對比兩方面。', '', 'ために 是原因。', 'せいで 是責怪。'],
-    core: '一方で＝另一方面。'
-  },
-  {
-    term: '〜一方（で）',
-    qtype: 'grammar_form',
     stem: '収入が増えた（　　）、支出も増えた。',
     options: ['のに', '一方で', 'ために', 'ばかりに'],
     answer: 1,
@@ -3110,16 +3100,6 @@ export const GRAMMAR_QUESTIONS: GrammarQ[] = [
     why: '他連名字都沒記住（強調最低限度）。',
     wrong: ['だけ 是只有。', 'しか 是只。', '', 'も 不夠強。'],
     core: 'さえ＝連〜都（極端例子）。'
-  },
-  {
-    term: '〜てはじめて',
-    qtype: 'grammar_form',
-    stem: '失って（　　）、大切さがわかりました。',
-    options: ['から', 'ので', 'てはじめて', 'てから'],
-    answer: 2,
-    why: '失去之後才第一次明白重要性。',
-    wrong: ['から 不是「才」。', 'ので 不是「才」。', '', 'てから 不強調「才」。'],
-    core: 'てはじめて＝第一次、才〜（恍然大悟）。'
   },
   {
     term: '〜とは限らない',
