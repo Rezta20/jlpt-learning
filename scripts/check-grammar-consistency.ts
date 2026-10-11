@@ -97,7 +97,44 @@ GRAMMAR_QUESTIONS.forEach((q, i) => {
   }
 });
 
-// Check 5: No duplicate stems
+// Check 5: options[answer] should appear in why or core (semantic alignment check)
+const semanticWarnings: Array<{index: number, term: string, stem: string, correctOption: string, whyCore: string}> = [];
+
+GRAMMAR_QUESTIONS.forEach((q, i) => {
+  if (q.options.length === 4 && q.answer >= 0 && q.answer <= 3) {
+    const correctOption = q.options[q.answer];
+    const whyCore = `${q.why} ${q.core}`.toLowerCase();
+    
+    // Extract the main part of the option (remove trailing notes like "、口語")
+    const optionMain = correctOption.split('、')[0].split('／')[0];
+    
+    // Check if option appears in why or core (allowing for stem forms)
+    // Remove common particles/suffixes to check stem forms
+    const optionStem = optionMain
+      .replace(/ます$/, '')
+      .replace(/ません$/, '')
+      .replace(/だ$/, '')
+      .replace(/です$/, '')
+      .replace(/ない$/, '');
+    
+    const found = whyCore.includes(optionMain.toLowerCase()) || 
+                  whyCore.includes(optionStem.toLowerCase()) ||
+                  // Check without first character (e.g., おかげで vs かげで)
+                  (optionMain.length > 2 && whyCore.includes(optionMain.substring(1).toLowerCase()));
+    
+    if (!found) {
+      semanticWarnings.push({
+        index: i,
+        term: q.term,
+        stem: q.stem,
+        correctOption: correctOption,
+        whyCore: `${q.why} / ${q.core}`
+      });
+    }
+  }
+});
+
+// Check 6: No duplicate stems
 const stemCounts = new Map<string, number[]>();
 GRAMMAR_QUESTIONS.forEach((q, i) => {
   const stem = q.stem.trim();
@@ -121,7 +158,7 @@ stemCounts.forEach((indices, stem) => {
   }
 });
 
-// Check 6: Every N3 grammar point has >= 2 questions
+// Check 7: Every N3 grammar point has >= 2 questions
 const n3TermCounts = new Map<string, number>();
 GRAMMAR_QUESTIONS.forEach(q => {
   if (n3GrammarPoints.includes(q.term)) {
@@ -142,7 +179,7 @@ n3GrammarPoints.forEach(term => {
   }
 });
 
-// Check 7: Answer distribution should be roughly balanced
+// Check 8: Answer distribution should be roughly balanced
 const answerCounts = [0, 0, 0, 0];
 GRAMMAR_QUESTIONS.forEach(q => {
   if (n3GrammarPoints.includes(q.term)) {
@@ -208,5 +245,16 @@ if (warnings.length > 0) {
   });
 }
 
-console.log(`\nSummary: ${criticalErrors.length} critical errors, ${warnings.length} warnings`);
+// Report semantic alignment warnings
+if (semanticWarnings.length > 0) {
+  console.log(`\n📋 Semantic Alignment Check: ${semanticWarnings.length} questions where options[answer] not clearly found in why/core\n`);
+  console.log('(This checks if the correct answer text appears in the explanation, catching potential misalignments)\n');
+  semanticWarnings.forEach((w, i) => {
+    console.log(`${i + 1}. Question #${w.index} (${w.term})`);
+    console.log(`   Correct option: "${w.correctOption}"`);
+    console.log(`   Why/Core: ${w.whyCore.substring(0, 80)}${w.whyCore.length > 80 ? '...' : ''}\n`);
+  });
+}
+
+console.log(`\nSummary: ${criticalErrors.length} critical errors, ${warnings.length} warnings, ${semanticWarnings.length} semantic alignment notes`);
 process.exit(criticalErrors.length > 0 ? 1 : 0);
