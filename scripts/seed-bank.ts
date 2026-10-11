@@ -104,7 +104,7 @@ function sharedKanji(term1: string, term2: string): number {
 /**
  * JLPT-style reading distractor picker: prefer phonetically similar readings.
  */
-function pickReadingDistractors(
+export function pickReadingDistractors(
   vocabs: VocabRow[],
   correct: string,
   targetTerm: string,
@@ -139,7 +139,7 @@ function pickReadingDistractors(
 /**
  * JLPT-style orthography distractor picker: prefer visually similar kanji terms.
  */
-function pickOrthoDistractors(
+export function pickOrthoDistractors(
   vocabs: VocabRow[],
   correct: string,
   correctReading: string,
