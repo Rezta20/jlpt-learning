@@ -54,6 +54,120 @@ function pickN(pool: string[], correct: string, n: number, rand: () => number, p
   return ordered.slice(0, n)
 }
 
+// ========== IMPROVED DISTRACTOR SELECTION (JLPT-STYLE) ==========
+
+/**
+ * Calculate phonetic similarity between two kana strings for JLPT-style reading distractors.
+ * Returns score 0-1 (higher = more similar).
+ */
+function phoneticSimilarity(r1: string, r2: string): number {
+  if (!r1 || !r2) return 0
+  if (r1 === r2) return 1
+  
+  const normalize = (s: string) => s.replace(/[ゃゅょャュョ]/g, '').replace(/ー/g, '')
+  const n1 = normalize(r1)
+  const n2 = normalize(r2)
+  
+  // Levenshtein distance
+  const matrix: number[][] = []
+  for (let i = 0; i <= n1.length; i++) matrix[i] = [i]
+  for (let j = 0; j <= n2.length; j++) matrix[0]![j] = j
+  
+  for (let i = 1; i <= n1.length; i++) {
+    for (let j = 1; j <= n2.length; j++) {
+      const cost = n1[i - 1] === n2[j - 1] ? 0 : 1
+      matrix[i]![j] = Math.min(
+        matrix[i - 1]![j]! + 1,
+        matrix[i]![j - 1]! + 1,
+        matrix[i - 1]![j - 1]! + cost
+      )
+    }
+  }
+  
+  const maxLen = Math.max(n1.length, n2.length)
+  return maxLen === 0 ? 0 : 1 - (matrix[n1.length]![n2.length]! / maxLen)
+}
+
+/**
+ * Check if two strings share common kanji (for visual similarity).
+ */
+function sharedKanji(term1: string, term2: string): number {
+  const kanji1 = term1.match(/[\u4e00-\u9fff]/g) || []
+  const kanji2 = term2.match(/[\u4e00-\u9fff]/g) || []
+  const set1 = new Set(kanji1)
+  const set2 = new Set(kanji2)
+  let shared = 0
+  for (const k of set1) if (set2.has(k)) shared++
+  return shared
+}
+
+/**
+ * JLPT-style reading distractor picker: prefer phonetically similar readings.
+ */
+function pickReadingDistractors(
+  vocabs: VocabRow[],
+  correct: string,
+  targetTerm: string,
+  n: number,
+  rand: () => number
+): string[] {
+  const correctNorm = correct.trim()
+  const candidates = vocabs
+    .filter(v => v.reading && v.reading !== correctNorm && v.term !== targetTerm)
+    .map(v => {
+      const r = v.reading!.trim()
+      const lengthScore = 1 - Math.abs(r.length - correctNorm.length) / Math.max(r.length, correctNorm.length, 1)
+      const phoneticScore = phoneticSimilarity(correctNorm, r)
+      const hasKanjiInTerm = /[\u4e00-\u9fff]/.test(v.term)
+      const termScore = hasKanjiInTerm ? 1 : 0.5 // prefer kanji terms for kanji reading questions
+      
+      return {
+        reading: r,
+        score: phoneticScore * 0.6 + lengthScore * 0.3 + termScore * 0.1
+      }
+    })
+    .filter(c => c.score > 0)
+  
+  candidates.sort((a, b) => b.score - a.score)
+  
+  // Take top candidates with some randomness
+  const topN = Math.min(candidates.length, n * 3)
+  const pool = candidates.slice(0, topN).map(c => c.reading)
+  return shuffle(pool, rand).slice(0, n)
+}
+
+/**
+ * JLPT-style orthography distractor picker: prefer visually similar kanji terms.
+ */
+function pickOrthoDistractors(
+  vocabs: VocabRow[],
+  correct: string,
+  correctReading: string,
+  n: number,
+  rand: () => number
+): string[] {
+  const correctNorm = correct.trim()
+  const candidates = vocabs
+    .filter(v => hasKanji(v.term) && v.term !== correctNorm)
+    .map(v => {
+      const lengthScore = 1 - Math.abs(v.term.length - correctNorm.length) / Math.max(v.term.length, correctNorm.length, 1)
+      const sharedScore = sharedKanji(correctNorm, v.term) / Math.max(correctNorm.length, v.term.length, 1)
+      const readingScore = v.reading ? phoneticSimilarity(correctReading, v.reading) : 0
+      
+      return {
+        term: v.term,
+        score: sharedScore * 0.5 + lengthScore * 0.3 + readingScore * 0.2
+      }
+    })
+    .filter(c => c.score > 0)
+  
+  candidates.sort((a, b) => b.score - a.score)
+  
+  const topN = Math.min(candidates.length, n * 3)
+  const pool = candidates.slice(0, topN).map(c => c.term)
+  return shuffle(pool, rand).slice(0, n)
+}
+
 function place(correct: string, distractors: string[], rand: () => number): { options: string[], answerIndex: number } | null {
   const opts = [correct, ...distractors.filter(d => d && d !== correct)]
   if (opts.length < 4) return null
@@ -193,8 +307,6 @@ async function flushQuestions(db: Db, rows: QRow[]) {
 }
 
 function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
-  const readings = vocabs.map(v => (v.reading || '').trim()).filter(r => r.length >= 2)
-  const kanjiTerms = vocabs.filter(v => hasKanji(v.term)).map(v => v.term)
   const out: QRow[] = []
 
   for (const v of vocabs) {
@@ -202,7 +314,8 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
     const rand = rng(v.id + v.term)
 
     if (hasKanji(v.term) && reading) {
-      const dRead = pickN(readings, reading, 3, rand, s => Math.abs(s.length - reading.length) <= 1)
+      // === KANJI READING QUESTION (improved distractor selection) ===
+      const dRead = pickReadingDistractors(vocabs, reading, v.term, 3, rand)
       const placedR = place(reading, dRead, rand)
       if (placedR) {
         const example = exampleWithTerm(v)
@@ -225,7 +338,8 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
         })
       }
 
-      const dKan = pickN(kanjiTerms, v.term, 3, rand, s => Math.abs(s.length - v.term.length) <= 1)
+      // === ORTHOGRAPHY QUESTION (improved distractor selection) ===
+      const dKan = pickOrthoDistractors(vocabs, v.term, reading, 3, rand)
       const placedK = place(v.term, dKan, rand)
       if (placedK) {
         const example = exampleWithTerm(v)
