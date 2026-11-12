@@ -4,7 +4,7 @@
  * Grammar + reading: authored originals in scripts/data/.
  */
 import { createHash } from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 import * as schema from '../server/db/schema'
 import type { Explanation, ExampleSentence } from '../server/db/schema'
@@ -282,11 +282,19 @@ async function flushQuestions(db: Db, rows: QRow[]) {
       source: r.source,
       sourceRef: r.sourceRef,
       stemHash: r.stemHash,
-      passageId: r.passageId ?? null
+      passageId: r.passageId ?? null,
+      quality: 'ok' as const
     }))
     const ret = await db.insert(schema.questions).values(values).onConflictDoUpdate({
       target: schema.questions.stemHash,
-      set: { explanation: sql`excluded.explanation` },
+      set: { 
+        options: sql`excluded.options`,
+        answerIndex: sql`excluded.answer_index`,
+        qtype: sql`excluded.qtype`,
+        level: sql`excluded.level`,
+        explanation: sql`excluded.explanation`,
+        quality: sql`excluded.quality`
+      },
       setWhere: sql`${schema.questions.source} = 'seed'`
     }).returning({
       id: schema.questions.id,
@@ -366,7 +374,7 @@ function buildVocabQuestions(vocabs: VocabRow[]): QRow[] {
   return out
 }
 
-async function seedVocabQuestions(db: Db) {
+async function seedVocabQuestions(db: Db, dryRun = false) {
   const vocabs = await db.select({
     id: schema.knowledgePoints.id,
     term: schema.knowledgePoints.term,
@@ -378,11 +386,17 @@ async function seedVocabQuestions(db: Db) {
   }).from(schema.knowledgePoints).where(eq(schema.knowledgePoints.type, 'vocab')) as VocabRow[]
 
   const rows = buildVocabQuestions(vocabs)
+  
+  if (dryRun) {
+    console.log(`[DRY RUN] Would insert/update ${rows.length} vocab questions`)
+    return
+  }
+  
   const { inserted } = await flushQuestions(db, rows)
-  console.log(`vocab questions prepared ${rows.length}, inserted ${inserted}`)
+  console.log(`vocab questions prepared ${rows.length}, inserted/updated ${inserted}`)
 }
 
-async function seedGrammarQuestions(db: Db) {
+async function seedGrammarQuestions(db: Db, dryRun = false) {
   const kps = await db.select({
     id: schema.knowledgePoints.id,
     term: schema.knowledgePoints.term,
@@ -391,6 +405,13 @@ async function seedGrammarQuestions(db: Db) {
   const byTerm = new Map(kps.map(k => [k.term, k]))
   const missing = new Set<string>()
   const rows: QRow[] = []
+  
+  // Build currentHashes from ALL GRAMMAR_QUESTIONS regardless of KP lookup
+  const currentHashes = new Set<string>()
+  for (const q of GRAMMAR_QUESTIONS) {
+    currentHashes.add(stemHash(q.stem, [...q.options]))
+  }
+  
   for (const q of GRAMMAR_QUESTIONS) {
     const kp = byTerm.get(q.term)
     if (!kp) {
@@ -419,9 +440,80 @@ async function seedGrammarQuestions(db: Db) {
       kpId: kp.id
     })
   }
+  
+  if (dryRun) {
+    const existingHashes = await db.select({
+      stemHash: schema.questions.stemHash
+    }).from(schema.questions).where(
+      and(
+        eq(schema.questions.source, 'seed'),
+        eq(schema.questions.sourceRef, 'bank:grammar')
+      )
+    )
+    const existingHashSet = new Set(existingHashes.map(q => q.stemHash))
+    const willUpdate = rows.filter(r => existingHashSet.has(r.stemHash)).length
+    const willInsert = rows.length - willUpdate
+    
+    console.log(`[DRY RUN] Would insert ${willInsert} new grammar questions, update ${willUpdate} existing`)
+    if (missing.size) {
+      console.warn('[DRY RUN] grammar terms not in DB:', [...missing].join('、'))
+      console.warn('[DRY RUN] SKIPPING retirement check - run seed for grammar KPs first')
+      return
+    }
+    
+    const oldQuestions = await db.select({
+      id: schema.questions.id,
+      stemHash: schema.questions.stemHash,
+      stem: schema.questions.stem
+    }).from(schema.questions).where(
+      and(
+        eq(schema.questions.source, 'seed'),
+        eq(schema.questions.sourceRef, 'bank:grammar'),
+        eq(schema.questions.quality, 'ok')
+      )
+    )
+    
+    const toRetire = oldQuestions.filter(q => !currentHashes.has(q.stemHash))
+    console.log(`[DRY RUN] Would retire ${toRetire.length} old grammar questions`)
+    if (toRetire.length > 0 && toRetire.length <= 10) {
+      console.log('[DRY RUN] Questions to retire:')
+      toRetire.forEach(q => console.log(`  - ${q.stem.substring(0, 60)}${q.stem.length > 60 ? '...' : ''}`))
+    }
+    return
+  }
+  
   const { inserted } = await flushQuestions(db, rows)
-  if (missing.size) console.warn('grammar terms not in DB:', [...missing].join('、'))
-  console.log(`grammar questions prepared ${rows.length}, inserted ${inserted}`)
+  if (missing.size) {
+    console.warn('grammar terms not in DB:', [...missing].join('、'))
+    console.warn('SKIPPING retirement - run seed for grammar KPs first')
+    console.log(`grammar questions prepared ${rows.length}, inserted/updated ${inserted}`)
+    return
+  }
+  console.log(`grammar questions prepared ${rows.length}, inserted/updated ${inserted}`)
+  
+  const oldQuestions = await db.select({
+    id: schema.questions.id,
+    stemHash: schema.questions.stemHash
+  }).from(schema.questions).where(
+    and(
+      eq(schema.questions.source, 'seed'),
+      eq(schema.questions.sourceRef, 'bank:grammar'),
+      eq(schema.questions.quality, 'ok')
+    )
+  )
+  
+  const toRetire = oldQuestions.filter(q => !currentHashes.has(q.stemHash))
+  
+  if (toRetire.length > 0) {
+    const retireIds = toRetire.map(q => q.id)
+    for (let i = 0; i < retireIds.length; i += 100) {
+      const chunk = retireIds.slice(i, i + 100)
+      await db.update(schema.questions)
+        .set({ quality: 'disabled' })
+        .where(inArray(schema.questions.id, chunk))
+    }
+    console.log(`retired ${toRetire.length} old grammar questions (marked as disabled)`)
+  }
 }
 
 function todayTw() {
@@ -436,11 +528,23 @@ function addDays(dateStr: string, n: number) {
   return d.toISOString().slice(0, 10)
 }
 
-async function seedPassages(db: Db) {
+async function seedPassages(db: Db, dryRun = false) {
   const start = todayTw()
   let insertedP = 0
   let insertedQ = 0
+  let totalQ = 0
+  
   for (const p of PASSAGES) {
+    totalQ += p.questions.length
+    
+    if (dryRun) {
+      const existing = await db.query.passages.findFirst({
+        where: and(eq(schema.passages.title, p.title), eq(schema.passages.source, 'seed'))
+      })
+      if (!existing) insertedP++
+      continue
+    }
+    
     const existing = await db.query.passages.findFirst({
       where: and(eq(schema.passages.title, p.title), eq(schema.passages.source, 'seed'))
     })
@@ -482,7 +586,6 @@ async function seedPassages(db: Db) {
       kpId: '',
       passageId
     }))
-    // reading questions have no KP — insert without junction
     const chunk = qRows.map(r => ({
       level: r.level,
       skill: r.skill,
@@ -499,19 +602,29 @@ async function seedPassages(db: Db) {
     const ret = await db.insert(schema.questions).values(chunk).onConflictDoNothing().returning({ id: schema.questions.id })
     insertedQ += ret.length
   }
-  console.log(`passages inserted ${insertedP}, reading questions inserted ${insertedQ}`)
+  
+  if (dryRun) {
+    console.log(`[DRY RUN] Would insert ${insertedP} passages, ${totalQ} reading questions`)
+  } else {
+    console.log(`passages inserted ${insertedP}, reading questions inserted ${insertedQ}`)
+  }
 }
 
-export async function seedQuestionBank(db: Db) {
-  await seedVocabQuestions(db)
-  await seedGrammarQuestions(db)
-  await seedPassages(db)
+export async function seedQuestionBank(db: Db, dryRun = false) {
+  if (dryRun) console.log('\n=== DRY RUN MODE ===\n')
+  await seedVocabQuestions(db, dryRun)
+  await seedGrammarQuestions(db, dryRun)
+  await seedPassages(db, dryRun)
+  if (dryRun) console.log('\n=== END DRY RUN ===\n')
 }
 
 async function main() {
   const { default: postgres } = await import('postgres')
   const { drizzle } = await import('drizzle-orm/postgres-js')
   await import('dotenv/config')
+  
+  const dryRun = process.argv.includes('--dry-run')
+  
   const url = process.env.NUXT_DATABASE_URL || process.env.DATABASE_URL
   if (!url) {
     console.error('NUXT_DATABASE_URL is not set')
@@ -519,11 +632,16 @@ async function main() {
   }
   const client = postgres(url, { prepare: false, max: 3 })
   const db = drizzle(client, { schema })
-  await seedQuestionBank(db as Db)
-  const counts = await db.execute<{ skill: string, qtype: string, n: number }>(sql`
-    select skill, qtype, count(*)::int as n from questions group by skill, qtype order by skill, qtype
-  `)
-  console.table(counts)
+  await seedQuestionBank(db as Db, dryRun)
+  
+  if (!dryRun) {
+    const counts = await db.execute<{ skill: string, qtype: string, n: number }>(sql`
+      select skill, qtype, count(*)::int as n from questions where quality = 'ok' group by skill, qtype order by skill, qtype
+    `)
+    console.log('\nQuestion counts (quality = ok):')
+    console.table(counts)
+  }
+  
   await client.end()
 }
 
